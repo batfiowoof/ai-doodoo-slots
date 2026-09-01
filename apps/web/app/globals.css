@@ -1,0 +1,55 @@
+/* Retro Casino pixel design system — Tailwind v4, CSS-first.
+   Rules: 16-color palette only, no border-radius, no gradients, no soft
+   shadows, 8px base unit (Tailwind steps 2/4/6/8 = 8/16/24/32px), bitmap
+   fonts at native pixel multiples, integer sprite scaling. */
+
+@import "tailwindcss";
+
+@theme {
+  /* The 16. Never exceed them. */
+  --color-ink: #0d0b1f;
+  --color-shadow: #1f1a3d;
+  --color-stone: #3b3565;
+  --color-haze: #6b5f9e;
+  --color-bone: #d9d4f0;
+  --color-amber: #ffb13b;
+  --color-ember: #f2643d;
+  --color-magenta: #e63f8c;
+  --color-violet: #a94ee6;
+  --color-cyan: #4fd6e0;
+  --color-mint: #5fe08a;
+  --color-rust: #8c3b2e;
+  --color-brass: #c78b3c;
+  --color-plum: #55245c;
+  --color-slate: #2a2740;
+  --color-white: #ffffff;
+
+  /* Hard-edged shadows only, whole-pixel offsets. */
+  --shadow-hard: 8px 8px 0 #000;
+  --shadow-card: 4px 4px 0 #000;
+  --shadow-spin: 0 8px 0 var(--color-rust);
+  --shadow-spin-disabled: 0 8px 0 var(--color-ink);
+  --shadow-marquee: 4px 4px 0 var(--color-plum);
+
+  /* Bitmap faces wired to next/font variables from layout.tsx. */
+  --font-display: var(--font-silkscreen), monospace;
+  --font-body: var(--font-vt323), monospace;
+}
+
+/* Hard rules enforced globally: no rounded corners on anything. */
+* {
+  border-radius: 0 !important;
+}
+
+body {
+  background: var(--color-ink);
+  color: var(--color-bone);
+  font-size: 24px; /* bitmap faces read best at pixel multiples */
+  line-height: 1.2;
+  -webkit-font-smoothing: none;
+}
+
+/* Sprite surfaces scale by integers only, never smoothed. */
+.pixelated {
+  image-rendering: pixelated;
+}
