@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  GLYPH_PATTERNS,
-  GLYPH_SIZE,
-  SYMBOL_COLORS,
-  SYMBOL_ACCENTS,
-  HIGHLIGHT,
-  SHADE,
-} from "@/lib/symbols";
+import { GLYPHS, GLYPH_SIZE } from "@/lib/symbols";
 import { useTheme } from "@/lib/theme";
 import { spriteDataUrl } from "@/lib/spriteRenderer";
 
@@ -15,22 +8,6 @@ interface PixelSymbolProps {
   index: number;
   /** Integer scale factor only — fractional scaling kills the effect. */
   scale?: number;
-}
-
-/** tone → fill color for the placeholder glyphs. */
-function toneColor(char: string, index: number): string | null {
-  switch (char) {
-    case "#":
-      return SYMBOL_COLORS[index % SYMBOL_COLORS.length];
-    case "o":
-      return SYMBOL_ACCENTS[index % SYMBOL_ACCENTS.length];
-    case "+":
-      return HIGHLIGHT;
-    case "-":
-      return SHADE;
-    default:
-      return null;
-  }
 }
 
 export default function PixelSymbol({ index, scale = 4 }: PixelSymbolProps) {
@@ -56,13 +33,13 @@ export default function PixelSymbol({ index, scale = 4 }: PixelSymbolProps) {
     }
   }
 
-  // Placeholder glyph: 16x16, four tones, crisp edges.
-  const pattern = GLYPH_PATTERNS[index % GLYPH_PATTERNS.length];
+  // Shipped icon set: per-symbol palette, crisp edges.
+  const glyph = GLYPHS[index % GLYPHS.length];
   const cells: Array<{ x: number; y: number; fill: string }> = [];
-  pattern.forEach((row, y) => {
+  glyph.rows.forEach((row, y) => {
     for (let x = 0; x < GLYPH_SIZE; x++) {
       const ch = row[x] ?? ".";
-      const fill = toneColor(ch, index);
+      const fill = glyph.palette[ch];
       if (fill) cells.push({ x, y, fill });
     }
   });
