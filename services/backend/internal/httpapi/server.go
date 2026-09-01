@@ -12,6 +12,9 @@ import (
 	"github.com/ai-doodoo-slots/services/backend/internal/auth"
 	"github.com/ai-doodoo-slots/services/backend/internal/clock"
 	"github.com/ai-doodoo-slots/services/backend/internal/fair"
+	"github.com/ai-doodoo-slots/services/backend/internal/game"
+	"github.com/ai-doodoo-slots/services/backend/internal/game/slots"
+	"github.com/ai-doodoo-slots/services/backend/internal/play"
 	"github.com/ai-doodoo-slots/services/backend/internal/wallet"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -22,6 +25,9 @@ type Server struct {
 	auth         *auth.Service
 	wallet       *wallet.Wallet
 	fair         *fair.Service
+	registry     *game.Registry
+	play         *play.Service
+	playLimiter  *rateLimiter
 	clock        clock.Clock
 	logger       *slog.Logger
 	cookieSecure bool
@@ -29,11 +35,16 @@ type Server struct {
 
 // NewServer constructs the HTTP server with its dependency set.
 func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieSecure bool) *Server {
+	registry := game.NewRegistry()
+	registry.Register(slots.New())
 	return &Server{
 		pool:         pool,
 		auth:         auth.NewService(pool, clk, logger),
 		wallet:       wallet.New(pool),
 		fair:         fair.NewService(pool),
+		registry:     registry,
+		play:         play.NewService(pool, registry),
+		playLimiter:  newRateLimiter(clk, playWindow, playMax),
 		clock:        clk,
 		logger:       logger,
 		cookieSecure: cookieSecure,
@@ -47,6 +58,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/guest", s.handleAuthGuest)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/v1/me", s.handleMe)
+	mux.HandleFunc("GET /api/v1/games", s.handleListGames)
+	mux.HandleFunc("POST /api/v1/games/{id}/play", s.handlePlay)
+	mux.HandleFunc("GET /api/v1/bets", s.handleListBets)
 	mux.HandleFunc("GET /api/v1/fair/current", s.handleFairCurrent)
 	mux.HandleFunc("POST /api/v1/fair/rotate", s.handleFairRotate)
 	return s.withLogging(s.withRecover(mux))

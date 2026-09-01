@@ -29,9 +29,9 @@ var BetSteps = []int64{5, 10, 25, 50, 100}
 // Symbol is one reel symbol. Weights sum to 100, ordered common to rare.
 // These figures are the shipped economy; do not tune.
 type Symbol struct {
-	Name   string
-	Weight int64
-	Pay    int64 // multiple of bet for three of a kind
+	Name   string `json:"name"`
+	Weight int64  `json:"weight"`
+	Pay    int64  `json:"pay"`
 }
 
 var symbols = []Symbol{
@@ -73,6 +73,21 @@ type Slots struct{}
 func New() *Slots { return &Slots{} }
 
 func (s *Slots) ID() string { return id }
+
+// DisplayName is the human-facing name shown in the lobby and paytable.
+func (s *Slots) DisplayName() string { return "Slots" }
+
+// Paytable exposes display data; the client renders it and never computes
+// payouts from it.
+func (s *Slots) Paytable() any {
+	return map[string]any{
+		"symbols":  symbols,
+		"betSteps": BetSteps,
+		"reels":    cols,
+		"rows":     rows,
+		"paylines": lineCount,
+	}
+}
 
 func (s *Slots) ValidateBet(credits int64) error {
 	for _, step := range BetSteps {

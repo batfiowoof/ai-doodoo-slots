@@ -4,68 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
-	"time"
 
-	"github.com/ai-doodoo-slots/services/backend/internal/clock"
-	"github.com/ai-doodoo-slots/services/backend/internal/store"
+	"github.com/ai-doodoo-slots/services/backend/internal/testdb"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// The gate for phase 2: 50 concurrent debits on one wallet leave the balance
-// correct and equal to the ledger sum. Requires the dockerized Postgres
-// (docker compose up -d); DSN overridable via TEST_DATABASE_URL.
 func testPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		dsn = "postgres://retro:retro@localhost:55432/retrocasino?sslmode=disable"
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Skipf("database unavailable, skipping integration test: %v", err)
-	}
-	if err := pool.Ping(ctx); err != nil {
-		t.Skipf("database unavailable, skipping integration test: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
+	return testdb.Pool(t)
 }
 
 // testUser creates an isolated user + wallet funded with startingCredits and
 // registers cleanup.
 func testUser(t *testing.T, pool *pgxpool.Pool, startingCredits int64) int64 {
 	t.Helper()
-	ctx := context.Background()
-	var userID int64
-	if err := pool.QueryRow(ctx,
-		`INSERT INTO users (display_name, is_guest) VALUES ($1, true) RETURNING id`,
-		"TEST-" + fmt.Sprintf("%d-%d", clock.Real{}.Now().UnixNano(), os.Getpid()),
-	).Scan(&userID); err != nil {
-		t.Fatalf("create test user: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
-	})
-	if err := store.New(pool).CreateWallet(ctx, store.CreateWalletParams{UserID: userID, BalanceCredits: 0}); err != nil {
-		t.Fatalf("create test wallet: %v", err)
-	}
-	if startingCredits > 0 {
-		w := New(pool)
-		if _, err := w.Apply(ctx, ApplyRequest{
-			UserID:         userID,
-			Kind:           KindSignupBonus,
-			Amount:         startingCredits,
-			IdempotencyKey: fmt.Sprintf("test-fund:%d:%d", userID, clock.Real{}.Now().UnixNano()),
-		}); err != nil {
-			t.Fatalf("fund test wallet: %v", err)
-		}
-	}
-	return userID
+	return testdb.NewUser(t, pool, startingCredits)
 }
 
 func TestConcurrentDebitsSerializes(t *testing.T) {

@@ -120,3 +120,19 @@ func (q *Queries) RevealAndDeactivateServerSeed(ctx context.Context, id int64) e
 	_, err := q.db.Exec(ctx, revealAndDeactivateServerSeed, id)
 	return err
 }
+
+const updateClientSeed = `-- name: UpdateClientSeed :exec
+UPDATE server_seeds
+SET client_seed = $2
+WHERE id = $1 AND is_active = true
+`
+
+type UpdateClientSeedParams struct {
+	ID         int64
+	ClientSeed string
+}
+
+func (q *Queries) UpdateClientSeed(ctx context.Context, arg UpdateClientSeedParams) error {
+	_, err := q.db.Exec(ctx, updateClientSeed, arg.ID, arg.ClientSeed)
+	return err
+}

@@ -86,7 +86,7 @@ func (w *Wallet) Apply(ctx context.Context, req ApplyRequest) (ApplyResult, erro
 	}
 	defer tx.Rollback(ctx)
 
-	res, err := applyTx(ctx, tx, req)
+	res, err := ApplyTx(ctx, tx, req)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -96,9 +96,21 @@ func (w *Wallet) Apply(ctx context.Context, req ApplyRequest) (ApplyResult, erro
 	return res, nil
 }
 
-// applyTx is the transaction body, shared with multi-step flows (guest
-// signup) that must include the ledger write in a larger atomic unit.
-func applyTx(ctx context.Context, tx pgx.Tx, req ApplyRequest) (ApplyResult, error) {
+// LockWallet takes the FOR UPDATE row lock on a wallet inside an open
+// transaction. The play path locks wallet first, then the seed row, always
+// in that order; multi-wallet settlement uses LockWalletsSorted.
+func LockWallet(ctx context.Context, tx pgx.Tx, userID int64) (store.Wallet, error) {
+	row, err := store.New(tx).LockWalletForUpdate(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.Wallet{}, ErrWalletNotFound
+	}
+	return row, err
+}
+
+// ApplyTx is the ledger mutation body run on an open transaction, shared
+// with multi-step flows (the play path, guest signup) that must include
+// ledger writes in a larger atomic unit.
+func ApplyTx(ctx context.Context, tx pgx.Tx, req ApplyRequest) (ApplyResult, error) {
 	q := store.New(tx)
 
 	// 1. Serialize on the wallet row before any read.
@@ -162,7 +174,7 @@ func (w *Wallet) EnsureSignup(ctx context.Context, userID int64, startingCredits
 	if err := q.CreateWallet(ctx, store.CreateWalletParams{UserID: userID, BalanceCredits: 0}); err != nil {
 		return fmt.Errorf("create wallet: %w", err)
 	}
-	if _, err := applyTx(ctx, tx, ApplyRequest{
+	if _, err := ApplyTx(ctx, tx, ApplyRequest{
 		UserID:         userID,
 		Kind:           KindSignupBonus,
 		Amount:         startingCredits,

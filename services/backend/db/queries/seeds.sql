@@ -27,3 +27,8 @@ UPDATE server_seeds
 SET nonce = nonce + 1
 WHERE id = $1 AND is_active = true
 RETURNING nonce;
+
+-- name: UpdateClientSeed :exec
+UPDATE server_seeds
+SET client_seed = $2
+WHERE id = $1 AND is_active = true;
