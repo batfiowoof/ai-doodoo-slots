@@ -1,0 +1,723 @@
+openapi: 3.1.0
+info:
+  title: Retro Casino API
+  version: 0.1.0
+  description: |
+    Play-money arcade casino. The server decides every outcome; the client
+    sends a bet and receives a result. All credit values are int64 and are
+    never floats anywhere in the system.
+
+    Authentication uses an opaque session token in an httpOnly, SameSite=Lax,
+    Secure cookie (`retro_session`). The API is only reachable through the
+    Next.js BFF in production; no public CORS.
+
+    WebSocket messages (one connection per player, multiplexed across rooms)
+    are documented informally at the bottom of this file and are not part of
+    the generated TS client contract.
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: auth
+  - name: user
+  - name: games
+  - name: fairness
+  - name: themes
+  - name: lobby
+  - name: admin
+
+paths:
+  /healthz:
+    get:
+      operationId: getHealthz
+      summary: Liveness plus database reachability
+      responses:
+        "200":
+          description: Healthy; migrated database answered a query
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  database: { type: string }
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/auth/guest:
+    post:
+      operationId: createGuest
+      tags: [auth]
+      summary: Create a guest session
+      description: Creates a guest user with 1000 credits, a wallet, and a server seed. Sets the session cookie.
+      responses:
+        "200":
+          description: Guest created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Register with email + password
+      description: Upgrades a guest in place — the same user row (wallet, bets, seeds) is retained and the session token is rotated. Also creates a new account when called without a session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+      responses:
+        "200":
+          description: Registered; new session cookie set
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "409":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Log in
+      description: Generic failure text for unknown email and wrong password alike; identical timing via dummy hash.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Revoke the current session and close its sockets
+      responses:
+        "204": { description: Revoked }
+
+  /api/v1/auth/verify:
+    post:
+      operationId: verifyEmail
+      tags: [auth]
+      summary: Consume an email verification token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        "204": { description: Verified }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /api/v1/auth/forgot:
+    post:
+      operationId: forgotPassword
+      tags: [auth]
+      summary: Request a password reset
+      description: Always returns 202 whether or not the account exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "202": { description: Accepted }
+
+  /api/v1/auth/reset:
+    post:
+      operationId: resetPassword
+      tags: [auth]
+      summary: Consume a reset token and set a new password
+      description: Revokes every session for the user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, minLength: 8 }
+      responses:
+        "204": { description: Reset }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /api/v1/auth/sessions:
+    get:
+      operationId: listSessions
+      tags: [auth]
+      summary: Active sessions for this user
+      responses:
+        "200":
+          description: Sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SessionInfo" }
+
+  /api/v1/auth/sessions/{id}:
+    delete:
+      operationId: revokeSession
+      tags: [auth]
+      summary: Revoke one session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "204": { description: Revoked }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/auth/oauth/{provider}/start:
+    get:
+      operationId: oauthStart
+      tags: [auth]
+      summary: Begin OAuth flow
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [discord, google] }
+      responses:
+        "302": { description: Redirect to provider }
+
+  /api/v1/auth/oauth/{provider}/callback:
+    get:
+      operationId: oauthCallback
+      tags: [auth]
+      summary: OAuth callback
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [discord, google] }
+      responses:
+        "302": { description: Redirect into the app with a session set }
+
+  /api/v1/me:
+    get:
+      operationId: getMe
+      tags: [user]
+      summary: Current user, wallet balance, and role
+      responses:
+        "200":
+          description: Current identity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /api/v1/games:
+    get:
+      operationId: listGames
+      tags: [games]
+      summary: Game registry with paytables and RTP
+      description: Display only. Paytables and RTP live in Go; the client never computes payouts.
+      responses:
+        "200":
+          description: Registered games
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Game" }
+
+  /api/v1/games/{id}/play:
+    post:
+      operationId: play
+      tags: [games]
+      summary: Place a bet and receive the outcome
+      description: |
+        Server-authoritative. Runs the engine, debits/credits the wallet, and
+        records the bet inside one transaction that takes the wallet row
+        FOR UPDATE. Returns the outcome, the new balance, and the fairness
+        triple used.
+
+        Idempotency: replaying the same idempotencyKey with an identical body
+        returns the original result with no second transaction. The same key
+        with a differing body returns 409.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlayRequest" }
+      responses:
+        "200":
+          description: Outcome
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlayResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "402": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
+  /api/v1/bets:
+    get:
+      operationId: listBets
+      tags: [games]
+      summary: Paginated bet history, own bets only
+      description: Ownership is enforced in SQL (`WHERE user_id = $session_user`), never filtered in a handler.
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Bet page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bets:
+                    type: array
+                    items: { $ref: "#/components/schemas/Bet" }
+                  nextCursor:
+                    type: string
+                    nullable: true
+
+  /api/v1/fair/current:
+    get:
+      operationId: getFairCurrent
+      tags: [fairness]
+      summary: Active server seed hash, client seed, and next nonce
+      responses:
+        "200":
+          description: Fairness state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FairCurrent" }
+
+  /api/v1/fair/rotate:
+    post:
+      operationId: rotateFair
+      tags: [fairness]
+      summary: Rotate seeds
+      description: Reveals the old server seed and issues a new one with its hash published.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [clientSeed]
+              properties:
+                clientSeed: { type: string, maxLength: 256 }
+      responses:
+        "200":
+          description: Old seed revealed, new seed active
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revealedServerSeed, serverSeedHash, clientSeed, nonce]
+                properties:
+                  revealedServerSeed: { type: string }
+                  serverSeedHash: { type: string }
+                  clientSeed: { type: string }
+                  nonce: { type: integer, format: int64 }
+
+  /api/v1/themes:
+    post:
+      operationId: createTheme
+      tags: [themes]
+      summary: Generate a theme from a prompt
+      description: Calls OpenRouter server-side. The response is validated before it is stored or applied; on any failure the current theme remains. Rate limited per user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              properties:
+                prompt: { type: string, maxLength: 200 }
+      responses:
+        "201":
+          description: Generated theme
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Theme" }
+        "400": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+    get:
+      operationId: listThemes
+      tags: [themes]
+      summary: User's saved themes
+      responses:
+        "200":
+          description: Themes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Theme" }
+
+  /api/v1/lobby:
+    get:
+      operationId: getLobby
+      tags: [lobby]
+      summary: Rooms with live summaries
+      responses:
+        "200":
+          description: Lobby
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rooms:
+                    type: array
+                    items: { $ref: "#/components/schemas/LobbySummary" }
+
+  /api/v1/rooms/{slug}:
+    get:
+      operationId: getRoom
+      tags: [lobby]
+      summary: Room detail and current round snapshot
+      description: Standalone fetchable so deep links to /rooms/{slug} work without visiting the lobby.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Room snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoomSnapshot" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/admin/users/{id}/ban:
+    post:
+      operationId: adminBan
+      tags: [admin]
+      summary: Ban or unban a user (moderator+)
+      description: Writes to audit_log. Banned users can read but cannot bet; their open sockets are closed.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [banned]
+              properties:
+                banned: { type: boolean }
+      responses:
+        "204": { description: Applied }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /api/v1/admin/users/{id}/adjust:
+    post:
+      operationId: adminAdjust
+      tags: [admin]
+      summary: Adjust a balance (admin only)
+      description: Writes an ordinary ledger transaction with kind admin_adjust and the actor recorded. Nothing writes wallets.balance_credits without a matching transaction row.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amountCredits, reason]
+              properties:
+                amountCredits:
+                  type: integer
+                  format: int64
+                  description: Signed; negative debits, positive credits
+                reason: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: New balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balanceCredits: { type: integer, format: int64 }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /api/v1/admin/audit:
+    get:
+      operationId: adminAudit
+      tags: [admin]
+      summary: Audit log (admin only)
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Audit entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items: { $ref: "#/components/schemas/AuditEntry" }
+                  nextCursor:
+                    type: string
+                    nullable: true
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: retro_session
+
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+
+    User:
+      type: object
+      required: [id, displayName, isGuest, role, status, createdAt]
+      properties:
+        id: { type: integer, format: int64 }
+        displayName: { type: string }
+        isGuest: { type: boolean }
+        email: { type: string, nullable: true }
+        emailVerified: { type: boolean }
+        role: { type: string, enum: [player, moderator, admin] }
+        status: { type: string, enum: [active, banned, self_excluded] }
+        createdAt: { type: string, format: date-time }
+
+    Me:
+      type: object
+      required: [user, balanceCredits]
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        balanceCredits: { type: integer, format: int64 }
+
+    SessionInfo:
+      type: object
+      required: [id, createdAt, lastSeenAt, expiresAt]
+      properties:
+        id: { type: integer, format: int64 }
+        createdAt: { type: string, format: date-time }
+        lastSeenAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        ip: { type: string, nullable: true }
+        userAgent: { type: string, nullable: true }
+
+    Game:
+      type: object
+      required: [id, name, theoreticalRtp]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        theoreticalRtp: { type: number }
+        paytable:
+          description: Game-specific display data (symbol weights/pays for slots)
+          nullable: true
+
+    PlayRequest:
+      type: object
+      required: [betCredits, clientSeed, idempotencyKey]
+      properties:
+        betCredits:
+          type: integer
+          format: int64
+          description: One of the server-enforced bet steps (5/10/25/50/100 for slots)
+        clientSeed: { type: string, maxLength: 256 }
+        idempotencyKey: { type: string, maxLength: 64 }
+
+    PlayResponse:
+      type: object
+      required: [betId, payoutCredits, balanceCredits, outcome, fairness]
+      properties:
+        betId: { type: integer, format: int64 }
+        payoutCredits: { type: integer, format: int64 }
+        balanceCredits: { type: integer, format: int64 }
+        outcome:
+          description: Game-specific payload rendered by the client (3x3 grid + winning lines for slots)
+        fairness: { $ref: "#/components/schemas/FairnessTriple" }
+
+    FairnessTriple:
+      type: object
+      required: [serverSeedHash, clientSeed, nonce]
+      properties:
+        serverSeedHash: { type: string }
+        clientSeed: { type: string }
+        nonce: { type: integer, format: int64 }
+
+    FairCurrent:
+      type: object
+      required: [serverSeedHash, clientSeed, nonce]
+      properties:
+        serverSeedHash: { type: string }
+        clientSeed: { type: string }
+        nonce: { type: integer, format: int64 }
+
+    Bet:
+      type: object
+      required: [id, gameId, betCredits, payoutCredits, nonce, clientSeed, serverSeedHash, createdAt]
+      properties:
+        id: { type: integer, format: int64 }
+        gameId: { type: string }
+        roundId: { type: integer, format: int64 }
+        betCredits: { type: integer, format: int64 }
+        payoutCredits: { type: integer, format: int64 }
+        nonce: { type: integer, format: int64 }
+        clientSeed: { type: string }
+        serverSeedHash: { type: string }
+        outcome: { nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    Theme:
+      type: object
+      required: [id, name, palette, sprites, createdAt]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        palette:
+          type: array
+          description: Exactly 8 hex colors; index 0 is transparent
+          items: { type: string }
+        sprites:
+          type: array
+          description: Exactly 8 sprites, each 16 rows of 16 hex-digit characters
+          items:
+            type: object
+            required: [name, rows]
+            properties:
+              name: { type: string }
+              rows:
+                type: array
+                items: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    LobbySummary:
+      type: object
+      required: [slug, gameId, name, playerCount, roundState]
+      properties:
+        slug: { type: string }
+        gameId: { type: string }
+        name: { type: string }
+        playerCount: { type: integer }
+        roundState: { type: string, enum: [betting_open, locked, running, settled] }
+        multiplier:
+          type: number
+          nullable: true
+          description: Coarsely rounded; meaningful for curve games only
+        recentResults:
+          type: array
+          items: { type: number }
+          description: Last few results as pixel-chip data
+
+    RoomSnapshot:
+      type: object
+      required: [slug, gameId, name, minBet, maxBet, capacity, roundState, playerCount]
+      properties:
+        slug: { type: string }
+        gameId: { type: string }
+        name: { type: string }
+        minBet: { type: integer, format: int64 }
+        maxBet: { type: integer, format: int64 }
+        capacity: { type: integer }
+        roundState: { type: string, enum: [betting_open, locked, running, settled] }
+        multiplier: { type: number, nullable: true }
+        playerCount: { type: integer }
+
+    AuditEntry:
+      type: object
+      required: [id, action, createdAt]
+      properties:
+        id: { type: integer, format: int64 }
+        actorUserId: { type: integer, format: int64, nullable: true }
+        action: { type: string }
+        targetType: { type: string, nullable: true }
+        targetId: { type: integer, format: int64, nullable: true }
+        metadata: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+
+# --- WebSocket protocol (informal; not part of the generated client) ---
+#
+# One connection per player, authenticated from the same session cookie.
+# Every inbound message runs the same authorization path as an HTTP request.
+# Bounded send buffer per connection; a slow client is closed, never allowed
+# to block a broadcast.
+#
+# client -> server:
+#   { "type": "subscribe_lobby" }
+#   { "type": "unsubscribe_lobby" }
+#   { "type": "join_room",    "slug": "..." }
+#   { "type": "leave_room",   "slug": "..." }
+#   { "type": "place_bet",    "roundId": 1, "credits": 10, "idempotencyKey": "..." }
+#   { "type": "cash_out",     "roundId": 1, "idempotencyKey": "..." }
+#
+# server -> client:
+#   { "type": "lobby_summary", ... }   ~1Hz; never round ticks
+#   { "type": "room_snapshot", ... }   full state on join and reconnect
+#   { "type": "round_tick",    ... }
+#   { "type": "round_result",  ... }
+#   { "type": "bet_ack",       ... }
+#   { "type": "wallet",        "balanceCredits": 1000 }
+#   { "type": "error",         "code": "...", "message": "..." }
+#   { "type": "session_revoked" }      then the server closes the socket
