@@ -27,7 +27,6 @@ func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 	}
 	if !su.CanBet() {
 		writeError(w, http.StatusForbidden, "status_forbids_betting", "account status does not permit betting")
-		return
 	}
 	if !s.playLimiter.allowUserID(su.UserID) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many plays, slow down")
@@ -60,6 +59,9 @@ func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 		return
 	case errors.Is(err, play.ErrIdempotencyConflict):
 		writeError(w, http.StatusConflict, "idempotency_conflict", "idempotency key reused with a different bet")
+		return
+	case errors.Is(err, play.ErrStatusForbidsBetting):
+		writeError(w, http.StatusForbidden, "status_forbids_betting", "account status does not permit betting")
 		return
 	case err != nil:
 		s.logger.Error("play", "err", err, "user_id", su.UserID, "game", r.PathValue("id"))

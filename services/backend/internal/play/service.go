@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ai-doodoo-slots/services/backend/internal/admin"
 	"github.com/ai-doodoo-slots/services/backend/internal/fair"
 	"github.com/ai-doodoo-slots/services/backend/internal/game"
 	"github.com/ai-doodoo-slots/services/backend/internal/store"
@@ -26,6 +27,8 @@ var (
 	ErrInvalidBet = errors.New("invalid bet")
 	// ErrIdempotencyKeyInvalid covers missing or oversized keys.
 	ErrIdempotencyKeyInvalid = errors.New("idempotency key must be 1-64 characters")
+	// ErrStatusForbidsBetting is returned for banned/self-excluded accounts.
+	ErrStatusForbidsBetting = errors.New("account status does not permit betting")
 	// Re-exported for handler mapping.
 	ErrInsufficientFunds     = wallet.ErrInsufficientFunds
 	ErrIdempotencyConflict   = wallet.ErrIdempotencyConflict
@@ -87,6 +90,16 @@ func (s *Service) Play(ctx context.Context, userID int64, gameID string, betCred
 	lockRow, err := wallet.LockWallet(ctx, tx, userID)
 	if err != nil {
 		return Result{}, err
+	}
+
+	// Status gate: banned and self-excluded accounts cannot reach any bet
+	// path. Enforced inside the service so sockets later inherit it.
+	status, err := q.GetUserStatus(ctx, userID)
+	if err != nil {
+		return Result{}, fmt.Errorf("load status: %w", err)
+	}
+	if admin.StatusForbidsBetting(status) {
+		return Result{}, ErrStatusForbidsBetting
 	}
 
 	// 2. Idempotency: identical retry replays the original result; the same

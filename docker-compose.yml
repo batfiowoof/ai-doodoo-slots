@@ -16,5 +16,32 @@ services:
       timeout: 3s
       retries: 20
 
+  api:
+    build: ./services/backend
+    environment:
+      DATABASE_URL: postgres://retro:retro@postgres:5432/retrocasino?sslmode=disable
+      API_ADDR: ":8080"
+      COOKIE_SECURE: "false"
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODELS: ${OPENROUTER_MODELS:-}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Migrations run before the API starts.
+    command: ["sh", "-c", "migrate up && api"]
+
+  web:
+    build: ./apps/web
+    environment:
+      # Same-origin BFF inside the compose network.
+      API_URL: http://api:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
 volumes:
   pgdata:

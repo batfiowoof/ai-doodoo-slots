@@ -78,17 +78,38 @@ type Accounts struct {
 	clock  clock.Clock
 	logger *slog.Logger
 
-	mu       sync.Mutex
-	backoffs map[string]*backoffState
+	mu          sync.Mutex
+	backoffs    map[string]*backoffState
+	adminEmails map[string]bool
 }
 
-func NewAccounts(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger) *Accounts {
+func NewAccounts(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, adminEmails ...string) *Accounts {
 	return &Accounts{
 		pool:     pool,
 		q:        store.New(pool),
 		clock:    clk,
 		logger:   logger,
 		backoffs: make(map[string]*backoffState),
+		adminEmails: adminEmailMap(adminEmails),
+	}
+}
+
+func adminEmailMap(emails []string) map[string]bool {
+	m := make(map[string]bool, len(emails))
+	for _, e := range emails {
+		m[normalizeEmail(strings.TrimSpace(e))] = true
+	}
+	return m
+}
+
+// promoteIfAdmin grants the admin role when the email is listed in
+// ADMIN_EMAILS.
+func (a *Accounts) promoteIfAdmin(ctx context.Context, userID int64, email string) {
+	if !a.adminEmails[strings.ToLower(strings.TrimSpace(email))] {
+		return
+	}
+	if err := a.q.SetUserRole(ctx, store.SetUserRoleParams{ID: userID, Role: "admin"}); err != nil {
+		a.logger.Warn("admin promotion", "err", err)
 	}
 }
 
@@ -203,7 +224,8 @@ func (a *Accounts) Register(ctx context.Context, su *SessionUser, currentToken, 
 			return RegisterResult{}, err
 		}
 
-		verify, err := a.issueEmailToken(ctx, user.ID, KindVerifyEmail, EmailTokenTTL)
+	a.promoteIfAdmin(ctx, user.ID, email)
+	verify, err := a.issueEmailToken(ctx, user.ID, KindVerifyEmail, EmailTokenTTL)
 		if err != nil {
 			a.logger.Warn("issue verify token", "err", err)
 		}
@@ -322,6 +344,8 @@ func (a *Accounts) Login(ctx context.Context, email, password, ip, userAgent str
 	}); err != nil {
 		return RegisterResult{}, err
 	}
+	// ADMIN_EMAILS promotion on login.
+	a.promoteIfAdmin(ctx, user.ID, email)
 	return RegisterResult{User: user, Token: token, Expires: expires}, nil
 }
 

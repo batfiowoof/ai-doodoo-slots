@@ -7,9 +7,12 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/ai-doodoo-slots/services/backend/internal/auth"
+	"github.com/ai-doodoo-slots/services/backend/internal/admin"
 	"github.com/ai-doodoo-slots/services/backend/internal/clock"
 	"github.com/ai-doodoo-slots/services/backend/internal/fair"
 	"github.com/ai-doodoo-slots/services/backend/internal/game"
@@ -32,6 +35,7 @@ type Server struct {
 	playLimiter  *rateLimiter
 	authLimiter  *rateLimiter
 	themes       *theme.Service
+	admin        *admin.Service
 	clock        clock.Clock
 	logger       *slog.Logger
 	cookieSecure bool
@@ -50,16 +54,25 @@ func WithThemeService(ts *theme.Service) Option {
 func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieSecure bool, opts ...Option) *Server {
 	registry := game.NewRegistry()
 	registry.Register(slots.New())
+	var adminEmails []string
+	if v := os.Getenv("ADMIN_EMAILS"); v != "" {
+		for _, e := range strings.Split(v, ",") {
+			if e = strings.TrimSpace(e); e != "" {
+				adminEmails = append(adminEmails, e)
+		}
+	}
+}
 	s := &Server{
 		pool:         pool,
 		auth:         auth.NewService(pool, clk, logger),
-		accounts:     auth.NewAccounts(pool, clk, logger),
+		accounts:     auth.NewAccounts(pool, clk, logger, adminEmails...),
 		wallet:       wallet.New(pool),
 		fair:         fair.NewService(pool),
 		registry:     registry,
 		play:         play.NewService(pool, registry),
 		playLimiter:  newRateLimiter(clk, playWindow, playMax),
 		authLimiter:  newRateLimiter(clk, time.Minute, 30),
+	admin:        admin.NewService(pool),
 		themes:       nil,
 		clock:        clk,
 		logger:       logger,
@@ -90,6 +103,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/bets", s.handleListBets)
 	mux.HandleFunc("GET /api/v1/fair/current", s.handleFairCurrent)
 	mux.HandleFunc("POST /api/v1/fair/rotate", s.handleFairRotate)
+	mux.HandleFunc("POST /api/v1/admin/users/{id}/ban", s.handleBan)
+	mux.HandleFunc("POST /api/v1/admin/users/{id}/adjust", s.handleAdminAdjust)
+	mux.HandleFunc("GET /api/v1/admin/audit", s.handleAdminAudit)
+	mux.HandleFunc("POST /api/v1/me/self-exclude", s.handleSelfExclude)
 	mux.HandleFunc("POST /api/v1/themes", s.handleCreateTheme)
 	mux.HandleFunc("GET /api/v1/themes", s.handleListThemes)
 	return s.withLogging(s.withRecover(mux))
