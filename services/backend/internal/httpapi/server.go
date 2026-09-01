@@ -15,6 +15,7 @@ import (
 	"github.com/ai-doodoo-slots/services/backend/internal/game"
 	"github.com/ai-doodoo-slots/services/backend/internal/game/slots"
 	"github.com/ai-doodoo-slots/services/backend/internal/play"
+	"github.com/ai-doodoo-slots/services/backend/internal/theme"
 	"github.com/ai-doodoo-slots/services/backend/internal/wallet"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -28,16 +29,26 @@ type Server struct {
 	registry     *game.Registry
 	play         *play.Service
 	playLimiter  *rateLimiter
+	themes       *theme.Service
 	clock        clock.Clock
 	logger       *slog.Logger
 	cookieSecure bool
 }
 
+// Option customizes the server at construction.
+type Option func(*Server)
+
+// WithThemeService attaches theme generation. Without it the theme
+// endpoints report unavailability.
+func WithThemeService(ts *theme.Service) Option {
+	return func(s *Server) { s.themes = ts }
+}
+
 // NewServer constructs the HTTP server with its dependency set.
-func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieSecure bool) *Server {
+func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieSecure bool, opts ...Option) *Server {
 	registry := game.NewRegistry()
 	registry.Register(slots.New())
-	return &Server{
+	s := &Server{
 		pool:         pool,
 		auth:         auth.NewService(pool, clk, logger),
 		wallet:       wallet.New(pool),
@@ -49,6 +60,10 @@ func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieS
 		logger:       logger,
 		cookieSecure: cookieSecure,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Handler builds the full middleware-wrapped route table.
@@ -63,6 +78,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/bets", s.handleListBets)
 	mux.HandleFunc("GET /api/v1/fair/current", s.handleFairCurrent)
 	mux.HandleFunc("POST /api/v1/fair/rotate", s.handleFairRotate)
+	mux.HandleFunc("POST /api/v1/themes", s.handleCreateTheme)
+	mux.HandleFunc("GET /api/v1/themes", s.handleListThemes)
 	return s.withLogging(s.withRecover(mux))
 }
 

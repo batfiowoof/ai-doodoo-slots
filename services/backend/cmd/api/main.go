@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/ai-doodoo-slots/services/backend/internal/clock"
 	"github.com/ai-doodoo-slots/services/backend/internal/httpapi"
+	"github.com/ai-doodoo-slots/services/backend/internal/theme"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -41,9 +43,28 @@ func main() {
 	}
 	defer pool.Close()
 
+	// The OpenRouter key lives here, in the Go service — never in the web
+	// bundle. Without it, theme endpoints report unavailability.
+	var opts []httpapi.Option
+	if key := os.Getenv("OPENROUTER_API_KEY"); key != "" {
+		var models []string
+		if m := os.Getenv("OPENROUTER_MODELS"); m != "" {
+			for _, id := range strings.Split(m, ",") {
+				if id = strings.TrimSpace(id); id != "" {
+					models = append(models, id)
+				}
+			}
+		}
+		client := theme.NewClient(key, models, clock.Real{})
+		opts = append(opts, httpapi.WithThemeService(theme.NewService(pool, client, clock.Real{})))
+		logger.Info("theme generation enabled")
+	} else {
+		logger.Info("OPENROUTER_API_KEY not set; theme generation disabled")
+	}
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewServer(pool, clock.Real{}, logger, envOr("COOKIE_SECURE", "false") == "true").Handler(),
+		Handler:           httpapi.NewServer(pool, clock.Real{}, logger, envOr("COOKIE_SECURE", "false") == "true", opts...).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

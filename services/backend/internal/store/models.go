@@ -106,12 +106,13 @@ type Session struct {
 }
 
 type Theme struct {
-	ID        int64
-	UserID    int64
-	Name      string
-	Palette   []byte
-	Sprites   []byte
-	CreatedAt time.Time
+	ID         int64
+	UserID     int64
+	Name       string
+	Palette    []byte
+	Sprites    []byte
+	CreatedAt  time.Time
+	PromptHash string
 }
 
 type Transaction struct {
