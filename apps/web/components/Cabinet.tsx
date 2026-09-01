@@ -1,14 +1,47 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ReelWindow, { type SpinRequest } from "./ReelWindow";
 import { PlayError, useFairCurrent, usePlay, useSession } from "@/lib/api";
 import { SYMBOL_NAMES } from "@/lib/symbols";
 
 const BULB_LIT = [true, true, false, true, true, false, true, true];
 const BET_STEPS = [5, 10, 25, 50, 100];
+const CELEBRATE_MS = 2600;
 
-type SpinPhase = "idle" | "awaiting" | "spinning";
+type SpinPhase = "idle" | "awaiting" | "spinning" | "celebrating";
+
+interface Celebration {
+  payout: number;
+  lines: number[];
+}
+
+/** Payout counter ticking digit by digit; steps, never easing. Skips the
+ * tick and shows the full amount when the user prefers reduced motion. */
+function WinBanner({ payout }: { payout: number }) {
+  const [reduced] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+  const [ticks, setTicks] = useState(0);
+  const step = Math.max(1, Math.ceil(payout / 16));
+  const done = ticks * step >= payout;
+
+  useEffect(() => {
+    if (reduced || done) return;
+    const timer = setInterval(() => setTicks((t) => t + 1), 80);
+    return () => clearInterval(timer);
+  }, [reduced, done]);
+
+  const shown = reduced ? payout : Math.min(payout, ticks * step);
+
+  return (
+    <div className="m-0 mt-4 border-4 border-mint bg-ink p-2 text-center font-display text-xl text-mint">
+      WIN {shown.toLocaleString()}
+    </div>
+  );
+}
 
 export default function Cabinet() {
   const session = useSession();
@@ -19,19 +52,42 @@ export default function Cabinet() {
   const [phase, setPhase] = useState<SpinPhase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [spin, setSpin] = useState<SpinRequest | null>(null);
+  const [celebrate, setCelebrate] = useState<Celebration | null>(null);
   const spinIdRef = useRef(0);
+  const celebrateTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (celebrateTimer.current !== null) clearTimeout(celebrateTimer.current);
+    };
+  }, []);
 
   const me = session.data;
   const balance = me?.balanceCredits;
   const canAfford = balance !== undefined && balance >= betStep;
 
   const handleAllSettled = useCallback(() => {
-    setPhase("idle");
+    setPhase((prev) => (prev === "spinning" ? "celebrating" : prev));
+    setSpin((current) => {
+      if (current && current.payout > 0) {
+        setCelebrate({ payout: current.payout, lines: current.winningLines });
+        if (celebrateTimer.current !== null) clearTimeout(celebrateTimer.current);
+        celebrateTimer.current = window.setTimeout(() => {
+          setCelebrate(null);
+          setPhase("idle");
+        }, CELEBRATE_MS);
+      } else {
+        setPhase("idle");
+      }
+      return current;
+    });
   }, []);
 
   const doSpin = () => {
     if (phase !== "idle" || play.isPending || !fair.data) return;
+    if (celebrateTimer.current !== null) clearTimeout(celebrateTimer.current);
     setError(null);
+    setCelebrate(null);
     setPhase("awaiting"); // disable on request, not on animation start
     play.mutate(
       { betCredits: betStep, clientSeed: fair.data.clientSeed },
@@ -39,7 +95,12 @@ export default function Cabinet() {
         onSuccess: (res) => {
           // Outcome known — now play the theater over it.
           spinIdRef.current += 1;
-          setSpin({ id: spinIdRef.current, grid: res.outcome.grid });
+          setSpin({
+            id: spinIdRef.current,
+            grid: res.outcome.grid,
+            winningLines: res.outcome.winningLines ?? [],
+            payout: res.payoutCredits,
+          });
           setPhase("spinning");
         },
         onError: (err) => {
@@ -66,7 +127,8 @@ export default function Cabinet() {
     );
   };
 
-  const busy = phase !== "idle" || play.isPending;
+  const busy = phase === "awaiting" || phase === "spinning" || play.isPending;
+
   const statusText =
     phase === "awaiting"
       ? "WAITING…"
@@ -77,7 +139,9 @@ export default function Cabinet() {
   return (
     <section
       aria-label="Slot machine"
-      className="w-[488px] max-w-full shrink-0 border-4 border-stone bg-rust p-4 shadow-hard"
+      className={`w-[488px] max-w-full shrink-0 border-4 border-stone bg-rust p-4 shadow-hard ${
+        celebrate ? "cabinet-shake" : ""
+      }`}
     >
       {/* Marquee */}
       <div className="border-4 border-plum bg-magenta p-4 text-center">
@@ -95,7 +159,11 @@ export default function Cabinet() {
       </div>
 
       {/* Reel window — server outcome, animated as theater */}
-      <ReelWindow spin={spin} onAllSettled={handleAllSettled} />
+      <ReelWindow
+        spin={spin}
+        winningLines={celebrate?.lines ?? null}
+        onAllSettled={handleAllSettled}
+      />
 
       {/* Deck */}
       <div className="border-4 border-stone bg-ink p-4">
@@ -140,6 +208,8 @@ export default function Cabinet() {
         >
           {statusText ?? "SPIN"}
         </button>
+
+        {celebrate && <WinBanner payout={celebrate.payout} />}
 
         {error && (
           <p

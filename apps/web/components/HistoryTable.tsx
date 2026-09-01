@@ -52,6 +52,9 @@ export default function HistoryTable() {
               <th className="border-b-4 border-slate p-2 text-right font-display font-normal text-haze">
                 PAYOUT
               </th>
+              <th className="border-b-4 border-slate p-2 text-right font-display font-normal text-haze">
+                VERIFY
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -83,6 +86,15 @@ export default function HistoryTable() {
                   }`}
                 >
                   {bet.payoutCredits > 0 ? `+${bet.payoutCredits}` : "0"}
+                </td>
+                <td className="border-b-4 border-slate p-2 text-right">
+                  <a
+                    href={`/verify?client=${encodeURIComponent(bet.clientSeed)}&nonce=${bet.nonce}&bet=${bet.betCredits}`}
+                    className="text-cyan hover:text-bone"
+                    title="Open the verifier with this bet's client seed and nonce — paste the revealed server seed there"
+                  >
+                    ▸
+                  </a>
                 </td>
               </tr>
             ))}

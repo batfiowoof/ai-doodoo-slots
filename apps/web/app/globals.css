@@ -71,3 +71,55 @@ body {
     transition-duration: 300ms;
   }
 }
+
+/* ---------- win celebration (phase 8) ---------- */
+
+/* Cabinet shake: whole-pixel offsets only, stepped timing. */
+@keyframes cabinet-shake {
+  0% { transform: translate(0, 0); }
+  12.5% { transform: translate(0, -8px); }
+  25% { transform: translate(8px, 0); }
+  37.5% { transform: translate(0, 8px); }
+  50% { transform: translate(-8px, 0); }
+  62.5% { transform: translate(0, -8px); }
+  75% { transform: translate(8px, 8px); }
+  87.5% { transform: translate(-8px, 8px); }
+  100% { transform: translate(0, 0); }
+}
+.cabinet-shake {
+  animation: cabinet-shake 480ms steps(1) 3;
+}
+
+/* Winning cells: hard two-frame flash between ink and stone. */
+@keyframes cell-flash {
+  0%, 49.9% { background: var(--color-ink); border-color: var(--color-cyan); }
+  50%, 100% { background: var(--color-stone); border-color: var(--color-white); }
+}
+.cell-win {
+  animation: cell-flash 400ms steps(1) infinite;
+}
+
+/* Payline stroke: draws on in discrete frames. */
+@keyframes payline-draw {
+  to { stroke-dashoffset: 0; }
+}
+.payline-stroke {
+  stroke-dasharray: 700;
+  stroke-dashoffset: 700;
+  animation: payline-draw 600ms steps(10) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cabinet-shake {
+    animation: none;
+  }
+  .cell-win {
+    animation: none;
+    background: var(--color-stone);
+    border-color: var(--color-cyan);
+  }
+  .payline-stroke {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
