@@ -24,11 +24,13 @@ import (
 type Server struct {
 	pool         *pgxpool.Pool
 	auth         *auth.Service
+	accounts     *auth.Accounts
 	wallet       *wallet.Wallet
 	fair         *fair.Service
 	registry     *game.Registry
 	play         *play.Service
 	playLimiter  *rateLimiter
+	authLimiter  *rateLimiter
 	themes       *theme.Service
 	clock        clock.Clock
 	logger       *slog.Logger
@@ -51,11 +53,14 @@ func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieS
 	s := &Server{
 		pool:         pool,
 		auth:         auth.NewService(pool, clk, logger),
+		accounts:     auth.NewAccounts(pool, clk, logger),
 		wallet:       wallet.New(pool),
 		fair:         fair.NewService(pool),
 		registry:     registry,
 		play:         play.NewService(pool, registry),
 		playLimiter:  newRateLimiter(clk, playWindow, playMax),
+		authLimiter:  newRateLimiter(clk, time.Minute, 30),
+		themes:       nil,
 		clock:        clk,
 		logger:       logger,
 		cookieSecure: cookieSecure,
@@ -71,7 +76,14 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("POST /api/v1/auth/guest", s.handleAuthGuest)
+	mux.HandleFunc("POST /api/v1/auth/register", s.handleRegister)
+	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)
+	mux.HandleFunc("POST /api/v1/auth/verify", s.handleVerifyEmail)
+	mux.HandleFunc("POST /api/v1/auth/forgot", s.handleForgotPassword)
+	mux.HandleFunc("POST /api/v1/auth/reset", s.handleResetPassword)
+	mux.HandleFunc("GET /api/v1/auth/sessions", s.handleListSessions)
+	mux.HandleFunc("DELETE /api/v1/auth/sessions/{id}", s.handleRevokeSession)
 	mux.HandleFunc("GET /api/v1/me", s.handleMe)
 	mux.HandleFunc("GET /api/v1/games", s.handleListGames)
 	mux.HandleFunc("POST /api/v1/games/{id}/play", s.handlePlay)

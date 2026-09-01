@@ -93,6 +93,54 @@ func (q *Queries) GetActiveSessionByTokenHash(ctx context.Context, tokenHash str
 	return i, err
 }
 
+const listActiveSessions = `-- name: ListActiveSessions :many
+SELECT id, user_id, token_hash, created_at, expires_at, last_seen_at, ip, user_agent, revoked_at
+FROM sessions
+WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
+ORDER BY id DESC
+`
+
+func (q *Queries) ListActiveSessions(ctx context.Context, userID int64) ([]Session, error) {
+	rows, err := q.db.Query(ctx, listActiveSessions, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Session
+	for rows.Next() {
+		var i Session
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.TokenHash,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+			&i.LastSeenAt,
+			&i.Ip,
+			&i.UserAgent,
+			&i.RevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const revokeAllForUser = `-- name: RevokeAllForUser :exec
+UPDATE sessions
+SET revoked_at = now()
+WHERE user_id = $1 AND revoked_at IS NULL
+`
+
+func (q *Queries) RevokeAllForUser(ctx context.Context, userID int64) error {
+	_, err := q.db.Exec(ctx, revokeAllForUser, userID)
+	return err
+}
+
 const revokeSessionByID = `-- name: RevokeSessionByID :exec
 UPDATE sessions
 SET revoked_at = now()
@@ -101,6 +149,23 @@ WHERE id = $1 AND revoked_at IS NULL
 
 func (q *Queries) RevokeSessionByID(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, revokeSessionByID, id)
+	return err
+}
+
+const revokeSessionByIDForUser = `-- name: RevokeSessionByIDForUser :exec
+UPDATE sessions
+SET revoked_at = now()
+WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+`
+
+type RevokeSessionByIDForUserParams struct {
+	ID     int64
+	UserID int64
+}
+
+// Ownership enforced in the query, never in the handler.
+func (q *Queries) RevokeSessionByIDForUser(ctx context.Context, arg RevokeSessionByIDForUserParams) error {
+	_, err := q.db.Exec(ctx, revokeSessionByIDForUser, arg.ID, arg.UserID)
 	return err
 }
 

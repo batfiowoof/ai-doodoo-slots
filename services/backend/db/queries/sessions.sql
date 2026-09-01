@@ -30,3 +30,20 @@ WHERE token_hash = $1 AND revoked_at IS NULL;
 UPDATE sessions
 SET revoked_at = now()
 WHERE id = $1 AND revoked_at IS NULL;
+
+-- name: ListActiveSessions :many
+SELECT id, user_id, token_hash, created_at, expires_at, last_seen_at, ip, user_agent, revoked_at
+FROM sessions
+WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
+ORDER BY id DESC;
+
+-- name: RevokeAllForUser :exec
+UPDATE sessions
+SET revoked_at = now()
+WHERE user_id = $1 AND revoked_at IS NULL;
+
+-- name: RevokeSessionByIDForUser :exec
+-- Ownership enforced in the query, never in the handler.
+UPDATE sessions
+SET revoked_at = now()
+WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL;

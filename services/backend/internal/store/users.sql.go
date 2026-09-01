@@ -7,6 +7,8 @@ package store
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createUserGuest = `-- name: CreateUserGuest :one
@@ -34,6 +36,62 @@ func (q *Queries) CreateUserGuest(ctx context.Context, displayName string) (User
 	return i, err
 }
 
+const createUserRegistered = `-- name: CreateUserRegistered :one
+INSERT INTO users (display_name, email, password_hash, is_guest)
+VALUES ($1, $2, $3, false)
+RETURNING id, created_at, is_guest, display_name, email, password_hash,
+          email_verified_at, role, status, status_until
+`
+
+type CreateUserRegisteredParams struct {
+	DisplayName  string
+	Email        *string
+	PasswordHash pgtype.Text
+}
+
+func (q *Queries) CreateUserRegistered(ctx context.Context, arg CreateUserRegisteredParams) (User, error) {
+	row := q.db.QueryRow(ctx, createUserRegistered, arg.DisplayName, arg.Email, arg.PasswordHash)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.IsGuest,
+		&i.DisplayName,
+		&i.Email,
+		&i.PasswordHash,
+		&i.EmailVerifiedAt,
+		&i.Role,
+		&i.Status,
+		&i.StatusUntil,
+	)
+	return i, err
+}
+
+const getUserByEmail = `-- name: GetUserByEmail :one
+SELECT id, created_at, is_guest, display_name, email, password_hash,
+       email_verified_at, role, status, status_until
+FROM users
+WHERE email = $1
+`
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email *string) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByEmail, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.IsGuest,
+		&i.DisplayName,
+		&i.Email,
+		&i.PasswordHash,
+		&i.EmailVerifiedAt,
+		&i.Role,
+		&i.Status,
+		&i.StatusUntil,
+	)
+	return i, err
+}
+
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, created_at, is_guest, display_name, email, password_hash,
        email_verified_at, role, status, status_until
@@ -43,6 +101,62 @@ WHERE id = $1
 
 func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 	row := q.db.QueryRow(ctx, getUserByID, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.IsGuest,
+		&i.DisplayName,
+		&i.Email,
+		&i.PasswordHash,
+		&i.EmailVerifiedAt,
+		&i.Role,
+		&i.Status,
+		&i.StatusUntil,
+	)
+	return i, err
+}
+
+const updatePassword = `-- name: UpdatePassword :exec
+UPDATE users SET password_hash = $2 WHERE id = $1
+`
+
+type UpdatePasswordParams struct {
+	ID           int64
+	PasswordHash pgtype.Text
+}
+
+func (q *Queries) UpdatePassword(ctx context.Context, arg UpdatePasswordParams) error {
+	_, err := q.db.Exec(ctx, updatePassword, arg.ID, arg.PasswordHash)
+	return err
+}
+
+const updateUserEmailVerified = `-- name: UpdateUserEmailVerified :exec
+UPDATE users SET email_verified_at = now() WHERE id = $1
+`
+
+func (q *Queries) UpdateUserEmailVerified(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, updateUserEmailVerified, id)
+	return err
+}
+
+const upgradeGuestUser = `-- name: UpgradeGuestUser :one
+UPDATE users
+SET email = $2, password_hash = $3, is_guest = false
+WHERE id = $1 AND is_guest = true
+RETURNING id, created_at, is_guest, display_name, email, password_hash,
+          email_verified_at, role, status, status_until
+`
+
+type UpgradeGuestUserParams struct {
+	ID           int64
+	Email        *string
+	PasswordHash pgtype.Text
+}
+
+// Guest upgrade in place: the same row keeps its wallet, bets, and seeds.
+func (q *Queries) UpgradeGuestUser(ctx context.Context, arg UpgradeGuestUserParams) (User, error) {
+	row := q.db.QueryRow(ctx, upgradeGuestUser, arg.ID, arg.Email, arg.PasswordHash)
 	var i User
 	err := row.Scan(
 		&i.ID,

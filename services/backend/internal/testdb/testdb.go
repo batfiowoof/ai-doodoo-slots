@@ -87,7 +87,7 @@ func cleanupUser(ctx context.Context, t *testing.T, pool *pgxpool.Pool, userID i
 	}
 	// Synthetic rounds orphaned when the cascade removed this user's bets.
 	if _, err := pool.Exec(ctx,
-		`DELETE FROM rounds WHERE NOT EXISTS (SELECT 1 FROM bets WHERE bets.round_id = rounds.id)`,
+		`DELETE FROM rounds WHERE opened_at < now() - interval '1 minute' AND NOT EXISTS (SELECT 1 FROM bets WHERE bets.round_id = rounds.id)`,
 	); err != nil {
 		t.Errorf("test cleanup failed: %v", err)
 	}

@@ -29,7 +29,7 @@ func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "status_forbids_betting", "account status does not permit betting")
 		return
 	}
-	if !s.playLimiter.allow(su.UserID) {
+	if !s.playLimiter.allowUserID(su.UserID) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many plays, slow down")
 		return
 	}
