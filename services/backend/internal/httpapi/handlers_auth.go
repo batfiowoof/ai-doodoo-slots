@@ -44,6 +44,12 @@ func (s *Server) handleAuthGuest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", "internal server error")
 		return
 	}
+	// Issue the fairness seed pair at signup; the player sees only the hash.
+	if _, err := s.fair.EnsureForUser(r.Context(), user.ID); err != nil {
+		s.logger.Error("provision seed", "err", err, "user_id", user.ID)
+		writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+		return
+	}
 
 	auth.SetCookie(w, token, expires, s.cookieSecure)
 	su := &auth.SessionUser{

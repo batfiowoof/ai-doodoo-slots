@@ -89,6 +89,8 @@ type ServerSeed struct {
 	IsActive   bool
 	CreatedAt  time.Time
 	RevealedAt *time.Time
+	ClientSeed string
+	Nonce      int64
 }
 
 type Session struct {

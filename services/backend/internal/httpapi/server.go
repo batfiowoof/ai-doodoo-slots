@@ -11,6 +11,7 @@ import (
 
 	"github.com/ai-doodoo-slots/services/backend/internal/auth"
 	"github.com/ai-doodoo-slots/services/backend/internal/clock"
+	"github.com/ai-doodoo-slots/services/backend/internal/fair"
 	"github.com/ai-doodoo-slots/services/backend/internal/wallet"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -20,6 +21,7 @@ type Server struct {
 	pool         *pgxpool.Pool
 	auth         *auth.Service
 	wallet       *wallet.Wallet
+	fair         *fair.Service
 	clock        clock.Clock
 	logger       *slog.Logger
 	cookieSecure bool
@@ -31,6 +33,7 @@ func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieS
 		pool:         pool,
 		auth:         auth.NewService(pool, clk, logger),
 		wallet:       wallet.New(pool),
+		fair:         fair.NewService(pool),
 		clock:        clk,
 		logger:       logger,
 		cookieSecure: cookieSecure,
@@ -44,6 +47,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/guest", s.handleAuthGuest)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/v1/me", s.handleMe)
+	mux.HandleFunc("GET /api/v1/fair/current", s.handleFairCurrent)
+	mux.HandleFunc("POST /api/v1/fair/rotate", s.handleFairRotate)
 	return s.withLogging(s.withRecover(mux))
 }
 
