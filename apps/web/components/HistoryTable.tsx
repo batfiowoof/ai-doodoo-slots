@@ -66,11 +66,11 @@ export default function HistoryTable() {
                 <td className="border-b-4 border-slate p-2">
                   {bet.outcome?.grid ? (
                     <span
-                      className="pixelated inline-grid grid-cols-3 gap-[2px] align-middle"
+                      className="pixelated inline-grid grid-cols-5 gap-[2px] align-middle"
                       aria-hidden
                     >
                       {bet.outcome.grid.flat().map((symbolIndex, i) => (
-                        <PixelSymbol key={i} index={symbolIndex} scale={2} />
+                        <PixelSymbol key={i} index={symbolIndex} scale={1} />
                       ))}
                     </span>
                   ) : (

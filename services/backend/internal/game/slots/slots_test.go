@@ -13,7 +13,7 @@ import (
 func TestWeightsSumTo100(t *testing.T) {
 	var sum int64
 	for _, s := range symbols {
-		if s.Weight <= 0 || s.Pay <= 0 {
+		if s.Weight <= 0 || s.Pay3 <= 0 || s.Pay4 < s.Pay3 || s.Pay5 < s.Pay4 {
 			t.Fatalf("symbol %q has non-positive weight/pay", s.Name)
 		}
 		sum += s.Weight
@@ -26,9 +26,32 @@ func TestWeightsSumTo100(t *testing.T) {
 		if symbols[i].Weight >= symbols[i-1].Weight {
 			t.Fatalf("weights not strictly decreasing at %q", symbols[i].Name)
 		}
-		if symbols[i].Pay <= symbols[i-1].Pay {
+		if symbols[i].Pay3 <= symbols[i-1].Pay3 {
 			t.Fatalf("pays not increasing at %q", symbols[i].Name)
 		}
+	}
+}
+
+func TestPaylinesShape(t *testing.T) {
+	if len(paylines) != lineCount {
+		t.Fatalf("expected %d paylines, got %d", lineCount, len(paylines))
+	}
+	for i, line := range paylines {
+		if len(line) != cols {
+			t.Fatalf("payline %d has %d cells, want %d", i, len(line), cols)
+		}
+		for _, cl := range line {
+			if cl.y < 0 || cl.y >= rows || cl.x < 0 || cl.x >= cols {
+				t.Fatalf("payline %d has out-of-range cell %+v", i, cl)
+			}
+		}
+	}
+	// The V and A diagonals must both be present.
+	if paylines[3] != [cols]cell{{0, 0}, {1, 1}, {2, 2}, {3, 1}, {4, 0}} {
+		t.Fatal("V payline misconfigured")
+	}
+	if paylines[4] != [cols]cell{{0, 2}, {1, 1}, {2, 0}, {3, 1}, {4, 2}} {
+		t.Fatal("A payline misconfigured")
 	}
 }
 
@@ -70,7 +93,7 @@ func TestPayloadConsistentWithPayout(t *testing.T) {
 	if err := json.Unmarshal(out.Payload, &p); err != nil {
 		t.Fatalf("payload not valid JSON: %v", err)
 	}
-	// Recompute the payout from the payload grid — the client-facing data
+	// Recompute the payout from the payload grid â€” the client-facing data
 	// must fully explain the server's number.
 	recomputed, lines, err := EvaluateGrid(p.Grid, 25)
 	if err != nil {
@@ -81,13 +104,6 @@ func TestPayloadConsistentWithPayout(t *testing.T) {
 	}
 	if !equalInts(lines, p.WinningLines) {
 		t.Fatalf("winning lines %v != recomputed %v", p.WinningLines, lines)
-	}
-	// Both diagonals must be part of the evaluator's coverage.
-	if len(paylines) != 5 {
-		t.Fatalf("expected 5 paylines, got %d", len(paylines))
-	}
-	if paylines[3] != [3]cell{{0, 0}, {1, 1}, {2, 2}} || paylines[4] != [3]cell{{0, 2}, {1, 1}, {2, 0}} {
-		t.Fatal("diagonal paylines misconfigured")
 	}
 }
 
@@ -120,8 +136,8 @@ func TestAllSymbolsAppearAndAllLinesHit(t *testing.T) {
 func TestTheoreticalRTPNear98(t *testing.T) {
 	rtp := New().TheoreticalRTP()
 	t.Logf("analytic slots RTP = %.6f (%.2f%%)", rtp, rtp*100)
-	// The shipped tables come out at ~0.984. Assert the band and record the
-	// figure; the recorded repo figure lives in the RTP sim test output.
+	// The shipped tables come out at ~0.9775 for nine lines. Assert the band
+	// and record the figure; the measured figure lives in the RTP sim.
 	if rtp < 0.95 || rtp > 1.0 {
 		t.Fatalf("analytic RTP %v outside [0.95, 1.0]", rtp)
 	}
@@ -157,9 +173,7 @@ func TestRTPSimulation(t *testing.T) {
 		}
 		stream := fair.NewPersonalStream(h.Sum(nil), "rtp-sim", int64(i))
 
-		grid, winning, payout := spin(stream, bet)
-		_ = grid
-		_ = winning
+		_, _, payout := spin(stream, bet)
 		totalPayout += payout
 		totalBet += bet
 	}

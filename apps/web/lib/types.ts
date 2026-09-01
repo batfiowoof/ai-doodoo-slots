@@ -7,7 +7,7 @@ export type Me = components["schemas"]["Me"];
 // The Game paytable is game-specific and untyped in the contract; this is
 // the slots shape as emitted by the Go engine.
 export interface SlotsPaytable {
-  symbols: { name: string; weight: number; pay: number }[];
+  symbols: { name: string; weight: number; pay3: number; pay4: number; pay5: number }[];
   betSteps: number[];
   reels: number;
   rows: number;

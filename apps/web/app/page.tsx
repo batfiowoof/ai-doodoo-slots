@@ -8,10 +8,10 @@ import Link from "next/link";
 export default function Home() {
   return (
     <ThemeProvider>
-      <div className="mx-auto max-w-[1128px] px-4 pt-6 pb-12">
-        <header className="mb-6 flex items-center justify-between gap-4">
+      <div className="flex min-h-screen flex-col px-4 pt-4 pb-10">
+        <header className="mb-2 flex items-center justify-between gap-4">
           <div className="flex items-baseline gap-4">
-            <h1 className="font-display text-2xl text-magenta">RETRO CASINO</h1>
+            <h1 className="font-display text-xl text-magenta">RETRO CASINO</h1>
             <Link href="/verify" className="font-display text-base text-cyan">
               VERIFY ▸
             </Link>
@@ -21,14 +21,16 @@ export default function Home() {
           </p>
         </header>
 
-        <div className="flex flex-col items-start gap-6 lg:flex-row lg:justify-center">
+        <main className="flex flex-1 flex-col items-center justify-center gap-6">
           <Cabinet />
-          <div className="flex min-w-0 flex-1 flex-col gap-6">
+          <div className="grid w-full max-w-[1280px] gap-6 lg:grid-cols-2">
             <ThemePanel />
             <Paytable />
+          </div>
+          <div className="w-full max-w-[1280px]">
             <HistoryTable />
           </div>
-        </div>
+        </main>
       </div>
     </ThemeProvider>
   );

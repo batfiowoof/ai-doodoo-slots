@@ -1,21 +1,25 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import PixelSymbol from "./PixelSymbol";
+import { PAYLINE_ROWS } from "@/lib/paylines";
+import { sound } from "@/lib/sound";
 
 // Physical reels have momentum, so the reel spin is the one place the design
 // system allows real easing: one CSS transition per reel, staggered. The
 // outcome arrives before the animation starts — the spin is theater played
 // over a known result.
-const CELL_PX = 64; // 8 multiple
 const WINDOW_CELLS = 3;
 const RANDOM_CELLS = 27;
+const SPIN_MS = 1600;
 const STAGGER_MS = 350;
 const SETTLE_GRACE_MS = 600;
+const REELS = 5;
+const ROWS = 3;
 
 export interface SpinRequest {
   id: number;
-  /** 3x3 grid, rows as delivered by the server. */
+  /** 3x5 grid, rows as delivered by the server. */
   grid: number[][];
   winningLines: number[];
   payout: number;
@@ -28,15 +32,25 @@ interface ReelProps {
   target: number[];
   spinId: number;
   delayMs: number;
+  cellPx: number;
   /** Rows (0-2) in this column that belong to a winning payline. */
   winRows: Set<number>;
   onSettled: () => void;
 }
 
-function Reel({ start, target, spinId, delayMs, winRows, onSettled }: ReelProps) {
+function Reel({
+  start,
+  target,
+  spinId,
+  delayMs,
+  cellPx,
+  winRows,
+  onSettled,
+}: ReelProps) {
   const [strip, setStrip] = useState<number[]>(start);
   const [offset, setOffset] = useState(0);
   const [animate, setAnimate] = useState(false);
+  const [stopFlash, setStopFlash] = useState(false);
   const settledRef = useRef(true);
   const startRef = useRef(start);
   const targetRef = useRef(target);
@@ -66,20 +80,17 @@ function Reel({ start, target, spinId, delayMs, winRows, onSettled }: ReelProps)
     const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
         setAnimate(true);
-        setOffset(-(full.length - WINDOW_CELLS) * CELL_PX);
+        setOffset(-(full.length - WINDOW_CELLS) * cellPx);
       });
     });
     return () => {
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
     };
-  }, [spinId]);
+  }, [spinId, cellPx]);
 
   return (
-    <div
-      className="overflow-hidden"
-      style={{ height: WINDOW_CELLS * CELL_PX }}
-    >
+    <div className="overflow-hidden" style={{ height: WINDOW_CELLS * cellPx }}>
       <div
         className={`reel-strip ${animate ? "animate" : ""}`}
         style={{
@@ -96,21 +107,27 @@ function Reel({ start, target, spinId, delayMs, winRows, onSettled }: ReelProps)
           setStrip(targetRef.current);
           setOffset(0);
           setAnimate(false);
+          setStopFlash(true);
+          window.setTimeout(() => setStopFlash(false), 350);
           onSettled();
         }}
       >
         {strip.map((symbolIndex, i) => {
-          const committedRow = i; // after settle, strip = 3 target cells
+          const committedRow = i; // after settle, strip = target cells
           const isWinner = !animate && winRows.has(committedRow);
           return (
             <div
               key={i}
-              className={`pixelated flex items-center justify-center border-4 bg-ink ${
-                isWinner ? "cell-win" : "border-slate"
+              className={`flex items-center justify-center border-4 bg-ink ${
+                isWinner
+                  ? "cell-win"
+                  : stopFlash
+                    ? "cell-stop"
+                    : "border-slate"
               }`}
-              style={{ width: CELL_PX, height: CELL_PX }}
+              style={{ width: cellPx, height: cellPx }}
             >
-              <PixelSymbol index={symbolIndex} scale={8} />
+              <PixelSymbol index={symbolIndex} scale={cellPx === 96 ? 5 : 4} />
             </div>
           );
         })}
@@ -119,31 +136,32 @@ function Reel({ start, target, spinId, delayMs, winRows, onSettled }: ReelProps)
   );
 }
 
-// Payline geometry: cells are 64px with 8px gaps inside an 8px-padded
-// container, so cell centers sit at 40 + 72c. Strokes are hard-edged
-// (crispEdges) and draw on with steps() — decorative motion lands on frames.
-const LINE_POINTS = [
-  "12,32 212,32", // top row
-  "12,104 212,104", // middle row
-  "12,176 212,176", // bottom row
-  "40,40 112,112 184,184", // diagonal down
-  "40,184 112,112 184,40", // diagonal up
-];
+// ---- payline overlay geometry ----
+
+export function overlayGeometry(cellPx: number) {
+  const gap = 8;
+  const pad = 8;
+  const width = REELS * cellPx + (REELS - 1) * gap + 2 * pad;
+  const height = ROWS * cellPx + (ROWS - 1) * gap + 2 * pad;
+  const cx = (c: number) => pad + c * (cellPx + gap) + cellPx / 2;
+  const cy = (r: number) => pad + r * (cellPx + gap) + cellPx / 2;
+  const points = (rows: number[]) =>
+    rows.map((r, c) => `${cx(c)},${cy(r)}`).join(" ");
+  const strokeLine = (rows: number[]) => {
+    if (rows.every((r) => r === rows[0])) {
+      return `8,${cy(rows[0])} ${width - 8},${cy(rows[0])}`;
+    }
+    return rows.map((r, c) => `${cx(c)},${cy(r)}`).join(" ");
+  };
+  return { width, height, points, strokeLine };
+}
 
 function winRowsByColumn(lines: number[]): Set<number>[] {
-  const sets = [new Set<number>(), new Set<number>(), new Set<number>()];
+  const sets: Set<number>[] = [];
+  for (let c = 0; c < REELS; c++) sets.push(new Set<number>());
   for (const l of lines) {
-    if (l <= 2) {
-      for (let c = 0; c < 3; c++) sets[c].add(l);
-    } else if (l === 3) {
-      sets[0].add(0);
-      sets[1].add(1);
-      sets[2].add(2);
-    } else {
-      sets[0].add(2);
-      sets[1].add(1);
-      sets[2].add(0);
-    }
+    const rows = PAYLINE_ROWS[l];
+    rows.forEach((r, c) => sets[c].add(r));
   }
   return sets;
 }
@@ -151,19 +169,19 @@ function winRowsByColumn(lines: number[]): Set<number>[] {
 export default function ReelWindow({
   spin,
   winningLines,
+  cellPx,
   onAllSettled,
 }: {
   spin: SpinRequest | null;
   /** Winning paylines to stroke, shown during the win celebration only. */
   winningLines: number[] | null;
+  cellPx: number;
   onAllSettled: () => void;
 }) {
   // Columns: committed[c] = top-to-bottom symbols of reel c.
-  const [committed, setCommitted] = useState<number[][]>([
-    [0, 3, 6],
-    [1, 4, 7],
-    [2, 5, 0],
-  ]);
+  const [committed, setCommitted] = useState<number[][]>(
+    Array.from({ length: REELS }, (_, c) => [(0 + c) % 8, (3 + c) % 8, (6 + c) % 8]),
+  );
   const settledCount = useRef(0);
   const spinRef = useRef<SpinRequest | null>(null);
 
@@ -176,10 +194,10 @@ export default function ReelWindow({
   useEffect(() => {
     if (!spin) return;
     settledCount.current = 0;
-    const worstCase = 1600 + 2 * STAGGER_MS + SETTLE_GRACE_MS;
+    const worstCase = SPIN_MS + (REELS - 1) * STAGGER_MS + SETTLE_GRACE_MS;
     const timer = setTimeout(() => {
-      if (settledCount.current < WINDOW_CELLS) {
-        settledCount.current = WINDOW_CELLS;
+      if (settledCount.current < REELS) {
+        settledCount.current = REELS;
         setCommitted(spin.grid.map((_, c) => spin.grid.map((row) => row[c])));
         onAllSettled();
       }
@@ -188,8 +206,9 @@ export default function ReelWindow({
   }, [spin, onAllSettled]);
 
   const handleSettled = () => {
+    sound.reelStop(settledCount.current);
     settledCount.current += 1;
-    if (settledCount.current === WINDOW_CELLS && spinRef.current) {
+    if (settledCount.current === REELS && spinRef.current) {
       const grid = spinRef.current.grid;
       setCommitted(grid.map((_, c) => grid.map((row) => row[c])));
       onAllSettled();
@@ -197,39 +216,70 @@ export default function ReelWindow({
   };
 
   const winRows = winningLines ? winRowsByColumn(winningLines) : null;
+  const geo = useMemo(() => overlayGeometry(cellPx), [cellPx]);
+
+  // Coin rain: deterministic per celebration (index-derived offsets).
+  const coins = useMemo(() => {
+    if (!winningLines || winningLines.length === 0) return [];
+    return Array.from({ length: 28 }, (_, i) => ({
+      left: ((i * 137 + 41) % 100) + "%",
+      delay: ((i * 97) % 500) + "ms",
+      dur: 420 + ((i * 61) % 260) + "ms",
+    }));
+  }, [winningLines]);
 
   return (
     <div className="my-4 border-8 border-stone bg-plum p-2">
-      <div className="relative flex gap-2 bg-slate p-2">
-        {committed.map((column, c) => (
-          <Reel
-            key={c}
-            start={column}
-            target={spin ? spin.grid.map((row) => row[c]) : column}
-            spinId={spin?.id ?? 0}
-            delayMs={c * STAGGER_MS}
-            winRows={winRows ? winRows[c] : new Set<number>()}
-            onSettled={handleSettled}
-          />
-        ))}
+      <div className="relative bg-slate" style={{ padding: 8 }}>
+        <div className="flex" style={{ gap: 8 }}>
+          {committed.map((column, c) => (
+            <Reel
+              key={c}
+              start={column}
+              target={spin ? spin.grid.map((row) => row[c]) : column}
+              spinId={spin?.id ?? 0}
+              delayMs={c * STAGGER_MS}
+              cellPx={cellPx}
+              winRows={winRows ? winRows[c] : new Set<number>()}
+              onSettled={handleSettled}
+            />
+          ))}
+        </div>
         {winningLines && winningLines.length > 0 && (
-          <svg
-            viewBox="0 0 224 224"
-            className="pointer-events-none absolute inset-0 h-full w-full"
-            shapeRendering="crispEdges"
-            aria-hidden
-          >
-            {winningLines.map((l) => (
-              <polyline
-                key={l}
-                points={LINE_POINTS[l]}
-                fill="none"
-                stroke="var(--color-cyan)"
-                strokeWidth={6}
-                className="payline-stroke"
-              />
-            ))}
-          </svg>
+          <>
+            <svg
+              viewBox={`0 0 ${geo.width} ${geo.height}`}
+              className="pointer-events-none absolute inset-0 h-full w-full"
+              shapeRendering="crispEdges"
+              aria-hidden
+            >
+              {winningLines.map((l, i) => (
+                <polyline
+                  key={l}
+                  points={geo.strokeLine(PAYLINE_ROWS[l])}
+                  fill="none"
+                  stroke={i % 2 === 0 ? "var(--color-cyan)" : "var(--color-magenta)"}
+                  strokeWidth={6}
+                  className="payline-stroke"
+                  style={{ animationDelay: `${i * 200}ms` }}
+                />
+              ))}
+            </svg>
+            <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+              {coins.map((coin, i) => (
+                <span
+                  key={i}
+                  className="coin absolute"
+                  style={{
+                    left: coin.left,
+                    top: 0,
+                    animationDelay: coin.delay,
+                    animationDuration: coin.dur,
+                  }}
+                />
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>

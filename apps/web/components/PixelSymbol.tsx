@@ -1,13 +1,36 @@
 "use client";
 
-import { GLYPH_PATTERNS, GLYPH_ROWS, GLYPH_COLS, SYMBOL_COLORS } from "@/lib/symbols";
+import {
+  GLYPH_PATTERNS,
+  GLYPH_SIZE,
+  SYMBOL_COLORS,
+  SYMBOL_ACCENTS,
+  HIGHLIGHT,
+  SHADE,
+} from "@/lib/symbols";
 import { useTheme } from "@/lib/theme";
 import { spriteDataUrl } from "@/lib/spriteRenderer";
 
 interface PixelSymbolProps {
   index: number;
   /** Integer scale factor only — fractional scaling kills the effect. */
-  scale?: 2 | 4 | 8;
+  scale?: number;
+}
+
+/** tone → fill color for the placeholder glyphs. */
+function toneColor(char: string, index: number): string | null {
+  switch (char) {
+    case "#":
+      return SYMBOL_COLORS[index % SYMBOL_COLORS.length];
+    case "o":
+      return SYMBOL_ACCENTS[index % SYMBOL_ACCENTS.length];
+    case "+":
+      return HIGHLIGHT;
+    case "-":
+      return SHADE;
+    default:
+      return null;
+  }
 }
 
 export default function PixelSymbol({ index, scale = 4 }: PixelSymbolProps) {
@@ -33,27 +56,28 @@ export default function PixelSymbol({ index, scale = 4 }: PixelSymbolProps) {
     }
   }
 
-  // Fallback placeholder glyph (phase 6).
+  // Placeholder glyph: 16x16, four tones, crisp edges.
   const pattern = GLYPH_PATTERNS[index % GLYPH_PATTERNS.length];
-  const color = SYMBOL_COLORS[index % SYMBOL_COLORS.length];
-  const cells: Array<{ x: number; y: number }> = [];
+  const cells: Array<{ x: number; y: number; fill: string }> = [];
   pattern.forEach((row, y) => {
-    for (let x = 0; x < GLYPH_COLS; x++) {
-      if (row[x] === "#") cells.push({ x, y });
+    for (let x = 0; x < GLYPH_SIZE; x++) {
+      const ch = row[x] ?? ".";
+      const fill = toneColor(ch, index);
+      if (fill) cells.push({ x, y, fill });
     }
   });
 
   return (
     <svg
-      width={GLYPH_COLS * scale}
-      height={GLYPH_ROWS * scale}
-      viewBox={`0 0 ${GLYPH_COLS} ${GLYPH_ROWS}`}
+      width={GLYPH_SIZE * scale}
+      height={GLYPH_SIZE * scale}
+      viewBox={`0 0 ${GLYPH_SIZE} ${GLYPH_SIZE}`}
       shapeRendering="crispEdges"
       className="pixelated shrink-0"
       aria-hidden
     >
-      {cells.map(({ x, y }) => (
-        <rect key={`${x}-${y}`} x={x} y={y} width={1} height={1} fill={color} />
+      {cells.map(({ x, y, fill }) => (
+        <rect key={`${x}-${y}`} x={x} y={y} width={1} height={1} fill={fill} />
       ))}
     </svg>
   );

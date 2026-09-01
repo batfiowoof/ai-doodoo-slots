@@ -1,5 +1,5 @@
 // Client-side provable-fairness verification. This file recomputes slot
-// outcomes entirely in the browser from (server seed, client seed, nonce) —
+// outcomes entirely in the browser from (server seed, client seed, nonce) â€”
 // it makes NO network calls and shares no code with the backend. The
 // byte-stream rule mirrors the documented contract in the Go fair package:
 //
@@ -10,7 +10,22 @@
 // weighted pick walks the cumulative table with trunc(float * 100).
 
 export const VERIFY_WEIGHTS = [22, 20, 16, 14, 11, 8, 6, 3];
-export const VERIFY_PAYS = [4, 5, 8, 11, 16, 26, 52, 200];
+export const VERIFY_PAYS3 = [1, 2, 4, 5, 6, 12, 24, 90];
+export const VERIFY_PAYS4 = [3, 6, 10, 15, 18, 36, 72, 270];
+export const VERIFY_PAYS5 = [7, 14, 28, 35, 42, 84, 168, 630];
+
+// Payline rows per reel, mirroring the Go engine.
+export const VERIFY_LINES = [
+  [1, 1, 1, 1, 1],
+  [0, 0, 0, 0, 0],
+  [2, 2, 2, 2, 2],
+  [0, 1, 2, 1, 0],
+  [2, 1, 0, 1, 2],
+  [1, 0, 1, 0, 1],
+  [1, 2, 1, 2, 1],
+  [0, 0, 1, 0, 0],
+  [2, 2, 1, 2, 2],
+];
 
 export interface VerifyInput {
   serverSeedHex: string;
@@ -72,7 +87,7 @@ export async function deriveGrid(input: VerifyInput): Promise<VerifyResult> {
   let buf: number[] = [];
   let blockIdx = 0;
 
-  while (u32s.length < 9) {
+  while (u32s.length < 15) {
     if (buf.length < 4) {
       const msg = blockIdx === 0 ? base : `${base}:${blockIdx}`;
       const block = await hmacSha256(key, msg);
@@ -98,49 +113,27 @@ export async function deriveGrid(input: VerifyInput): Promise<VerifyResult> {
   });
 
   const grid = [
-    [picks[0], picks[1], picks[2]],
-    [picks[3], picks[4], picks[5]],
-    [picks[6], picks[7], picks[8]],
-  ];
-
-  const lines = [
-    [
-      [0, 0],
-      [0, 1],
-      [0, 2],
-    ], // top row
-    [
-      [1, 0],
-      [1, 1],
-      [1, 2],
-    ], // middle row
-    [
-      [2, 0],
-      [2, 1],
-      [2, 2],
-    ], // bottom row
-    [
-      [0, 0],
-      [1, 1],
-      [2, 2],
-    ], // diagonal down
-    [
-      [2, 0],
-      [1, 1],
-      [0, 2],
-    ], // diagonal up
+    picks.slice(0, 5),
+    picks.slice(5, 10),
+    picks.slice(10, 15),
   ];
 
   const winningLines: number[] = [];
   let payoutMultiplier = 0;
-  lines.forEach((line, i) => {
-    const [a, b, c] = line;
-    const first = grid[a[0]][a[1]];
-    if (grid[b[0]][b[1]] === first && grid[c[0]][c[1]] === first) {
-      winningLines.push(i);
-      payoutMultiplier += VERIFY_PAYS[first];
-    }
-  });
+	VERIFY_LINES.forEach((line, i) => {
+		const first = grid[line[0]][0];
+		let count = 1;
+		for (let c = 1; c < line.length; c++) {
+			if (grid[line[c]][c] !== first) break;
+			count++;
+		}
+		if (count >= 3) {
+			winningLines.push(i);
+			const pays =
+				count === 3 ? VERIFY_PAYS3 : count === 4 ? VERIFY_PAYS4 : VERIFY_PAYS5;
+			payoutMultiplier += pays[first];
+		}
+	});
 
   return { grid, winningLines, payoutMultiplier, u32s };
 }

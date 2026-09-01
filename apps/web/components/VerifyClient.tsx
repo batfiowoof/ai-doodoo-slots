@@ -4,7 +4,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import PixelSymbol from "./PixelSymbol";
 import { deriveGrid, type VerifyResult } from "@/lib/verify";
-import { VERIFY_PAYS, VERIFY_WEIGHTS } from "@/lib/verify";
+import { VERIFY_PAYS3, VERIFY_PAYS4, VERIFY_PAYS5, VERIFY_WEIGHTS } from "@/lib/verify";
 import { SYMBOL_NAMES } from "@/lib/symbols";
 
 function Verifier() {
@@ -96,7 +96,7 @@ function Verifier() {
           disabled={busy || serverSeed.length === 0}
           className="border-4 border-plum bg-cyan p-2 font-display text-base text-ink hover:bg-bone disabled:cursor-not-allowed disabled:border-slate disabled:bg-stone disabled:text-haze"
         >
-          {busy ? "COMPUTING…" : "RECOMPUTE OUTCOME"}
+          {busy ? "COMPUTINGâ€¦" : "RECOMPUTE OUTCOME"}
         </button>
         {error && (
           <p role="alert" className="m-0 border-4 border-ember p-2 text-ember">
@@ -123,22 +123,22 @@ function Verifier() {
           <p className="mt-4 text-xl">
             {result.winningLines.length > 0 ? (
               <span className="text-mint">
-                WIN · {result.winningLines.length} line
-                {result.winningLines.length > 1 ? "s" : ""} ·{" "}
-                {result.payoutMultiplier}× bet = {payout} credits
+                WIN Â· {result.winningLines.length} line
+                {result.winningLines.length > 1 ? "s" : ""} Â·{" "}
+                {result.payoutMultiplier}Ã— bet = {payout} credits
               </span>
             ) : (
               <span className="text-haze">NO WINNING LINES</span>
             )}
           </p>
           <p className="mt-2 text-base text-haze">
-            grid {JSON.stringify(result.grid)} · lines{" "}
+            grid {JSON.stringify(result.grid)} Â· lines{" "}
             [{result.winningLines.join(", ")}]
           </p>
           <p className="mt-4 border-t-4 border-slate pt-4 text-base text-haze">
-            Weights [{VERIFY_WEIGHTS.join(", ")}] · pays [
-            {VERIFY_PAYS.join(", ")}] · symbols {SYMBOL_NAMES.join(", ")} ·
-            first draws u32 [{result.u32s.slice(0, 4).join(", ")}…]
+            Weights [{VERIFY_WEIGHTS.join(", ")}] Â· pays [
+            {VERIFY_PAYS3.join(" / ")} · {VERIFY_PAYS4.join(" / ")} · {VERIFY_PAYS5.join(" / ")}] · symbols {SYMBOL_NAMES.join(", ")}
+            first draws u32 [{result.u32s.slice(0, 4).join(", ")}â€¦]
           </p>
         </div>
       )}

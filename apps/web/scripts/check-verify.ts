@@ -1,20 +1,19 @@
 // Fixture check for lib/verify.ts — run with: npm run verify:fixture
-// Expected grids derived with an independent node implementation (crypto module,
+// Expected grids derived with an independent node implementation
+// (crypto module, hex-decoded 32-byte key — the same key semantics as the
+// Go engine's play path).
 import { deriveGrid } from "../lib/verify.ts";
 
 const SEED = "4f0c2ba1e6d54b8fa3c9d0e7f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4";
 
-// Grids derived by hand from the cross-validated uint32 vectors:
-// nonce 0 picks: 32,43,84,7,52,30,6,34,17 -> [1,2,5, 0,2,1, 0,1,0]
-// nonce 1 picks: 54,18,80,33,10,69,96,18,85 -> [2,0,4, 1,0,3, 6,0,5]
 const FIXTURES = [
   {
     name: "nonce 0",
     input: { serverSeedHex: SEED, clientSeed: "player-one", nonce: 0 },
     wantGrid: [
-      [2, 1, 3],
-      [3, 3, 1],
-      [5, 2, 7],
+      [2, 1, 3, 3, 3],
+      [1, 5, 2, 7, 4],
+      [5, 4, 0, 3, 1],
     ],
     wantLines: [] as number[],
   },
@@ -22,11 +21,11 @@ const FIXTURES = [
     name: "nonce 1",
     input: { serverSeedHex: SEED, clientSeed: "player-one", nonce: 1 },
     wantGrid: [
-      [7, 5, 1],
-      [0, 3, 5],
-      [1, 5, 2],
+      [7, 5, 1, 0, 3],
+      [5, 1, 5, 2, 5],
+      [2, 5, 4, 0, 4],
     ],
-    wantLines: [] as number[],
+    wantLines: [5, 6] as number[],
   },
 ];
 
