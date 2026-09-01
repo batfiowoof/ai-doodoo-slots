@@ -45,7 +45,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewServer(pool, clock.Real{}, logger).Handler(),
+		Handler:           httpapi.NewServer(pool, clock.Real{}, logger, envOr("COOKIE_SECURE", "false") == "true").Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

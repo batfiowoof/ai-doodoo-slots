@@ -9,26 +9,41 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ai-doodoo-slots/services/backend/internal/auth"
 	"github.com/ai-doodoo-slots/services/backend/internal/clock"
+	"github.com/ai-doodoo-slots/services/backend/internal/wallet"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Server holds the dependencies shared by all handlers.
 type Server struct {
-	pool   *pgxpool.Pool
-	clock  clock.Clock
-	logger *slog.Logger
+	pool         *pgxpool.Pool
+	auth         *auth.Service
+	wallet       *wallet.Wallet
+	clock        clock.Clock
+	logger       *slog.Logger
+	cookieSecure bool
 }
 
 // NewServer constructs the HTTP server with its dependency set.
-func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger) *Server {
-	return &Server{pool: pool, clock: clk, logger: logger}
+func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieSecure bool) *Server {
+	return &Server{
+		pool:         pool,
+		auth:         auth.NewService(pool, clk, logger),
+		wallet:       wallet.New(pool),
+		clock:        clk,
+		logger:       logger,
+		cookieSecure: cookieSecure,
+	}
 }
 
 // Handler builds the full middleware-wrapped route table.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	mux.HandleFunc("POST /api/v1/auth/guest", s.handleAuthGuest)
+	mux.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)
+	mux.HandleFunc("GET /api/v1/me", s.handleMe)
 	return s.withLogging(s.withRecover(mux))
 }
 

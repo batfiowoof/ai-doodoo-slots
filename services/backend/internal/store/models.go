@@ -5,6 +5,8 @@
 package store
 
 import (
+	"time"
+
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -15,7 +17,7 @@ type AuditLog struct {
 	TargetType  pgtype.Text
 	TargetID    pgtype.Int8
 	Metadata    []byte
-	CreatedAt   pgtype.Timestamptz
+	CreatedAt   time.Time
 }
 
 type Bet struct {
@@ -29,7 +31,7 @@ type Bet struct {
 	ClientSeed    string
 	Nonce         int64
 	Outcome       []byte
-	CreatedAt     pgtype.Timestamptz
+	CreatedAt     time.Time
 }
 
 type ChainSeed struct {
@@ -37,7 +39,7 @@ type ChainSeed struct {
 	Index      int64
 	SeedHash   string
 	SeedPlain  pgtype.Text
-	RevealedAt pgtype.Timestamptz
+	RevealedAt *time.Time
 }
 
 type EmailToken struct {
@@ -45,8 +47,8 @@ type EmailToken struct {
 	UserID    int64
 	Kind      string
 	TokenHash string
-	ExpiresAt pgtype.Timestamptz
-	UsedAt    pgtype.Timestamptz
+	ExpiresAt time.Time
+	UsedAt    *time.Time
 }
 
 type OauthIdentity struct {
@@ -74,9 +76,9 @@ type Round struct {
 	Salt        string
 	State       string
 	Result      []byte
-	OpenedAt    pgtype.Timestamptz
-	LockedAt    pgtype.Timestamptz
-	SettledAt   pgtype.Timestamptz
+	OpenedAt    time.Time
+	LockedAt    *time.Time
+	SettledAt   *time.Time
 }
 
 type ServerSeed struct {
@@ -85,20 +87,20 @@ type ServerSeed struct {
 	SeedHash   string
 	SeedPlain  pgtype.Text
 	IsActive   bool
-	CreatedAt  pgtype.Timestamptz
-	RevealedAt pgtype.Timestamptz
+	CreatedAt  time.Time
+	RevealedAt *time.Time
 }
 
 type Session struct {
 	ID         int64
 	UserID     int64
 	TokenHash  string
-	CreatedAt  pgtype.Timestamptz
-	ExpiresAt  pgtype.Timestamptz
-	LastSeenAt pgtype.Timestamptz
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	LastSeenAt time.Time
 	Ip         pgtype.Text
 	UserAgent  pgtype.Text
-	RevokedAt  pgtype.Timestamptz
+	RevokedAt  *time.Time
 }
 
 type Theme struct {
@@ -107,7 +109,7 @@ type Theme struct {
 	Name      string
 	Palette   []byte
 	Sprites   []byte
-	CreatedAt pgtype.Timestamptz
+	CreatedAt time.Time
 }
 
 type Transaction struct {
@@ -117,20 +119,20 @@ type Transaction struct {
 	AmountCredits  int64
 	BetID          pgtype.Int8
 	IdempotencyKey string
-	CreatedAt      pgtype.Timestamptz
+	CreatedAt      time.Time
 }
 
 type User struct {
 	ID              int64
-	CreatedAt       pgtype.Timestamptz
+	CreatedAt       time.Time
 	IsGuest         bool
 	DisplayName     string
 	Email           *string
 	PasswordHash    pgtype.Text
-	EmailVerifiedAt pgtype.Timestamptz
+	EmailVerifiedAt *time.Time
 	Role            string
 	Status          string
-	StatusUntil     pgtype.Timestamptz
+	StatusUntil     *time.Time
 }
 
 type Wallet struct {
