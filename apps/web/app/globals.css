@@ -53,3 +53,21 @@ body {
 .pixelated {
   image-rendering: pixelated;
 }
+
+/* Reel spin: physical momentum, the one exception to stepped motion.
+   Timing curve per the design spec; duration/stagger set in ReelWindow. */
+.reel-strip {
+  will-change: transform;
+}
+
+.reel-strip.animate {
+  transition-property: transform;
+  transition-duration: 1600ms;
+  transition-timing-function: cubic-bezier(0.15, 0.85, 0.25, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reel-strip.animate {
+    transition-duration: 300ms;
+  }
+}

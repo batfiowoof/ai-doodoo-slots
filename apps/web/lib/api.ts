@@ -1,7 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import type { BetRow, FairCurrent, GameInfo, Me } from "./types";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { BetRow, FairCurrent, GameInfo, Me, SlotsOutcome } from "./types";
 
 // All client traffic goes through the same-origin BFF; the client never
 // talks to the Go service directly and never computes an outcome.
@@ -53,5 +53,84 @@ export function useFairCurrent(enabled: boolean) {
     queryKey: ["fair"],
     queryFn: () => getJSON<FairCurrent>("/api/v1/fair/current"),
     enabled,
+  });
+}
+
+export interface PlayResponse {
+  betId: number;
+  gameId: string;
+  payoutCredits: number;
+  balanceCredits: number;
+  outcome: SlotsOutcome;
+  fairness: FairCurrent;
+  replay: boolean;
+}
+
+export class PlayError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export interface PlayInput {
+  betCredits: number;
+  clientSeed: string;
+}
+
+/** Places the bet; the server decides everything. On success, patches the
+ * balance, fairness, and history caches from the authoritative response. */
+export function usePlay() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ betCredits, clientSeed }: PlayInput): Promise<PlayResponse> => {
+      const res = await fetch("/api/v1/games/slots/play", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          betCredits,
+          clientSeed,
+          idempotencyKey: crypto.randomUUID(),
+        }),
+      });
+      if (!res.ok) {
+        throw new PlayError(res.status, `play failed: ${res.status}`);
+      }
+      return res.json() as Promise<PlayResponse>;
+    },
+    onSuccess: (data, variables) => {
+      qc.setQueryData<Me>(["me"], (old) =>
+        old ? { ...old, balanceCredits: data.balanceCredits } : old,
+      );
+      qc.setQueryData<FairCurrent>(["fair"], data.fairness);
+      qc.setQueryData<{ bets: BetRow[]; nextCursor: string | null }>(
+        ["bets"],
+        (old) =>
+          old
+            ? {
+                bets: [
+                  {
+                    id: data.betId,
+                    gameId: data.gameId,
+                    roundId: 0,
+                    betCredits: variables.betCredits,
+                    payoutCredits: data.payoutCredits,
+                    clientSeed: data.fairness.clientSeed,
+                    nonce: data.fairness.nonce,
+                    outcome: data.outcome,
+                    createdAt: new Date().toISOString(),
+                  },
+                  ...old.bets,
+                ],
+                nextCursor: old.nextCursor,
+              }
+            : old,
+      );
+    },
+    onError: () => {
+      // Balance may have drifted (e.g. another tab); re-sync.
+      void qc.invalidateQueries({ queryKey: ["me"] });
+    },
   });
 }

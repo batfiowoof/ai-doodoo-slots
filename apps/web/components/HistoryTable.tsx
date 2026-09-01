@@ -67,13 +67,7 @@ export default function HistoryTable() {
                       aria-hidden
                     >
                       {bet.outcome.grid.flat().map((symbolIndex, i) => (
-                        <span
-                          key={i}
-                          className="pixelated h-2 w-2"
-                          title={`symbol ${symbolIndex}`}
-                        >
-                          <PixelSymbol index={symbolIndex} scale={2} />
-                        </span>
+                        <PixelSymbol key={i} index={symbolIndex} scale={2} />
                       ))}
                     </span>
                   ) : (

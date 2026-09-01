@@ -1,23 +1,78 @@
 "use client";
 
-import { useState } from "react";
-import PixelSymbol from "./PixelSymbol";
-import { useFairCurrent, useSession } from "@/lib/api";
+import { useCallback, useRef, useState } from "react";
+import ReelWindow, { type SpinRequest } from "./ReelWindow";
+import { PlayError, useFairCurrent, usePlay, useSession } from "@/lib/api";
 import { SYMBOL_NAMES } from "@/lib/symbols";
 
-// Static decorative grid until the first spin arrives in phase 7.
-const IDLE_GRID = [0, 1, 2, 3, 4, 5, 6, 7, 0];
-
 const BULB_LIT = [true, true, false, true, true, false, true, true];
+const BET_STEPS = [5, 10, 25, 50, 100];
+
+type SpinPhase = "idle" | "awaiting" | "spinning";
 
 export default function Cabinet() {
   const session = useSession();
   const fair = useFairCurrent(session.isSuccess);
+  const play = usePlay();
+
   const [betStep, setBetStep] = useState(10);
+  const [phase, setPhase] = useState<SpinPhase>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [spin, setSpin] = useState<SpinRequest | null>(null);
+  const spinIdRef = useRef(0);
 
   const me = session.data;
   const balance = me?.balanceCredits;
-  const betSteps = [5, 10, 25, 50, 100];
+  const canAfford = balance !== undefined && balance >= betStep;
+
+  const handleAllSettled = useCallback(() => {
+    setPhase("idle");
+  }, []);
+
+  const doSpin = () => {
+    if (phase !== "idle" || play.isPending || !fair.data) return;
+    setError(null);
+    setPhase("awaiting"); // disable on request, not on animation start
+    play.mutate(
+      { betCredits: betStep, clientSeed: fair.data.clientSeed },
+      {
+        onSuccess: (res) => {
+          // Outcome known — now play the theater over it.
+          spinIdRef.current += 1;
+          setSpin({ id: spinIdRef.current, grid: res.outcome.grid });
+          setPhase("spinning");
+        },
+        onError: (err) => {
+          setPhase("idle");
+          if (err instanceof PlayError) {
+            switch (err.status) {
+              case 402:
+                setError("INSUFFICIENT CREDITS");
+                break;
+              case 429:
+                setError("SLOW DOWN");
+                break;
+              case 403:
+                setError("BETTING BLOCKED");
+                break;
+              default:
+                setError("SPIN REJECTED");
+            }
+          } else {
+            setError("CASINO UNREACHABLE");
+          }
+        },
+      },
+    );
+  };
+
+  const busy = phase !== "idle" || play.isPending;
+  const statusText =
+    phase === "awaiting"
+      ? "WAITING…"
+      : phase === "spinning"
+        ? "SPINNING…"
+        : null;
 
   return (
     <section
@@ -39,19 +94,8 @@ export default function Cabinet() {
         </div>
       </div>
 
-      {/* Reel window */}
-      <div className="my-4 border-8 border-stone bg-plum p-2">
-        <div className="grid grid-cols-3 gap-2 bg-slate p-2">
-          {IDLE_GRID.map((symbolIndex, i) => (
-            <div
-              key={i}
-              className="pixelated flex aspect-square items-center justify-center border-4 border-slate bg-ink"
-            >
-              <PixelSymbol index={symbolIndex} />
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* Reel window — server outcome, animated as theater */}
+      <ReelWindow spin={spin} onAllSettled={handleAllSettled} />
 
       {/* Deck */}
       <div className="border-4 border-stone bg-ink p-4">
@@ -66,16 +110,17 @@ export default function Cabinet() {
         </div>
 
         <div className="mt-4 flex gap-2">
-          {betSteps.map((step) => (
+          {BET_STEPS.map((step) => (
             <button
               key={step}
               type="button"
               onClick={() => setBetStep(step)}
+              disabled={busy}
               className={`flex-1 border-4 p-2 font-display text-base ${
                 betStep === step
                   ? "border-bone bg-stone text-white"
                   : "border-slate bg-shadow text-haze"
-              }`}
+              } ${busy ? "cursor-not-allowed opacity-60" : ""}`}
             >
               {step}
             </button>
@@ -84,12 +129,30 @@ export default function Cabinet() {
 
         <button
           type="button"
-          disabled
-          title="Spins arrive in phase 7"
-          className="mt-4 block w-full cursor-not-allowed border-4 border-slate bg-stone p-4 font-display text-2xl text-haze shadow-spin-disabled"
+          onClick={doSpin}
+          disabled={busy || !canAfford || session.isPending || fair.isLoading}
+          title={!canAfford && balance !== undefined ? "Insufficient credits" : undefined}
+          className={`mt-4 block w-full border-4 p-4 font-display text-2xl text-white ${
+            busy || !canAfford
+              ? "cursor-not-allowed border-slate bg-stone text-haze shadow-spin-disabled"
+              : "border-plum bg-magenta shadow-spin hover:translate-y-[2px] hover:shadow-[0_6px_0_var(--color-rust)] active:translate-y-[8px] active:shadow-none"
+          }`}
         >
-          SPIN
+          {statusText ?? "SPIN"}
         </button>
+
+        {error && (
+          <p
+            role="alert"
+            className={`m-0 mt-4 border-4 p-2 text-center font-display text-base ${
+              error === "INSUFFICIENT CREDITS"
+                ? "border-ember bg-ink text-ember"
+                : "border-brass bg-ink text-amber"
+            }`}
+          >
+            {error}
+          </p>
+        )}
       </div>
 
       {/* Coin door */}
