@@ -67,10 +67,12 @@ func NewHub(auth Authenticator, src RoomSource, b bus.Bus, clk clock.Clock, log 
 }
 
 // Run drives the hub until the context is cancelled: bus events (session
-// revocations, status changes) and 1Hz lobby summaries.
+// revocations, status changes, room events from round loops) and 1Hz lobby
+// summaries.
 func (h *Hub) Run(ctx context.Context) {
 	sessionSub := h.bus.Subscribe(TopicSession)
 	userSub := h.bus.Subscribe(TopicUser)
+	roomSub := h.bus.Subscribe(TopicRooms)
 	lobbyTick := time.NewTicker(1 * time.Second)
 	defer lobbyTick.Stop()
 	for {
@@ -81,6 +83,10 @@ func (h *Hub) Run(ctx context.Context) {
 			h.handleSessionEvent(ev)
 		case ev := <-userSub.Chan():
 			h.handleUserEvent(ev)
+		case ev := <-roomSub.Chan():
+			// Round-loop events fan out to the room's subscribers only;
+			// the lobby never receives round ticks.
+			h.BroadcastRoom(ev.Room, Message{Type: ev.Type, Payload: ev.Payload})
 		case <-lobbyTick.C:
 			h.broadcastLobbySummary()
 		}

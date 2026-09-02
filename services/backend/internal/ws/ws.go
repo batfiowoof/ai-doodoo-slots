@@ -38,9 +38,10 @@ func (i *Identity) IsStaff() bool {
 // by the httpapi layer so the socket shares the exact auth path of HTTP.
 type Authenticator func(r *http.Request) (*Identity, bool)
 
-// LobbyTopic and session/user topics are bus topics the hub listens to.
+// LobbyTopic and session/user/room topics are bus topics the hub listens to.
 const (
 	TopicLobby   = "lobby"
 	TopicSession = "session"
 	TopicUser    = "user"
+	TopicRooms   = "rooms" // round-loop events; Room names the target room
 )

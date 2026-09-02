@@ -15,7 +15,12 @@ import (
 	"time"
 
 	"github.com/ai-doodoo-slots/services/backend/internal/clock"
+	"github.com/ai-doodoo-slots/services/backend/internal/fair"
+	"github.com/ai-doodoo-slots/services/backend/internal/game"
+	"github.com/ai-doodoo-slots/services/backend/internal/game/crash"
 	"github.com/ai-doodoo-slots/services/backend/internal/httpapi"
+	"github.com/ai-doodoo-slots/services/backend/internal/round"
+	"github.com/ai-doodoo-slots/services/backend/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -24,6 +29,12 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// roundRegistry maps game IDs to shared-round engines. Adding a game:
+// implement game.RoundGame, register here, seed a room.
+var roundRegistry = map[string]game.RoundGame{
+	crash.GameID: crash.New(),
 }
 
 func main() {
@@ -43,13 +54,44 @@ func main() {
 	}
 	defer pool.Close()
 
-	// The gameserver owns round loops (phase 13) and the realtime surface:
+	// The gameserver owns round loops (crash) and the realtime surface:
 	// hub, rooms, and lobby presence ride the in-process bus.
 	api := httpapi.NewServer(pool, clock.Real{}, logger,
 		envOr("COOKIE_SECURE", "false") == "true",
 		httpapi.WithHub(),
 	)
 	go api.Run(ctx)
+
+	// One runner per active round-game room; each runner is the single
+	// writer for its room's rounds.
+	crashChain := fair.NewChainService(pool)
+	persist := round.NewPersister(pool)
+	rooms, err := store.New(pool).ListActiveRooms(ctx)
+	if err != nil {
+		logger.Error("list rooms", "err", err)
+		os.Exit(1)
+	}
+	started := 0
+	for _, room := range rooms {
+		g, ok := roundRegistry[room.GameID]
+		if !ok {
+			continue // round engine not shipped yet
+		}
+		runner := round.NewRunner(room.Slug, room.ID, g, crashChain, persist,
+			api.Bus(), clock.Real{}, round.Config{
+				BettingOpen: 7 * time.Second,
+				Locked:      1 * time.Second,
+				Settled:     4 * time.Second,
+				Tick:        100 * time.Millisecond,
+				MaxRunning:  90 * time.Second,
+				Curve:       crash.MultiplierAt,
+				RunningFor:  crash.RunningFor,
+			}, pool, logger)
+		go runner.Run(ctx)
+		started++
+		logger.Info("round runner started", "room", room.Slug, "game", room.GameID)
+	}
+	logger.Info("round runners running", "rooms", started)
 
 	srv := &http.Server{
 		Addr:              addr,

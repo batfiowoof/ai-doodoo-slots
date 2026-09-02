@@ -9,10 +9,12 @@ import (
 	"sync"
 )
 
-// Event is a message on the bus. Topic selects the audience
-// ("room:<slug>", "lobby", "session", "user"); Payload is JSON.
+// Event is a message on the bus. Topic selects the audience ("lobby",
+// "session", "user", "rooms"); for "rooms" events, Room names the target
+// room. Payload is JSON.
 type Event struct {
 	Topic   string
+	Room    string
 	Type    string
 	Payload []byte
 }
