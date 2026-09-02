@@ -286,6 +286,20 @@ paths:
                   clientSeed: { type: string }
                   nonce: { type: integer, format: int64 }
 
+  /api/v1/ws:
+    get:
+      operationId: connectSocket
+      tags: [lobby]
+      summary: Authenticated WebSocket (same session/Bearer auth as HTTP)
+      description: |
+        Client messages: subscribe_lobby, unsubscribe_lobby, join_room {slug},
+        leave_room. Server messages: lobby_summary (1Hz), room_snapshot (on
+        join and reconnect), session_revoked, error. place_bet and cash_out
+        arrive with the round games.
+      responses:
+        "101": { description: Switching Protocols }
+        "401": { $ref: "#/components/responses/Error" }
+
   /api/v1/themes:
     post:
       operationId: createTheme
@@ -493,6 +507,19 @@ components:
         expiresAt: { type: string, format: date-time }
         ip: { type: string, nullable: true }
         userAgent: { type: string, nullable: true }
+
+    Room:
+      type: object
+      required: [id, slug, name, gameId, minBet, maxBet, capacity, playerCount]
+      properties:
+        id: { type: integer, format: int64 }
+        slug: { type: string }
+        name: { type: string }
+        gameId: { type: string }
+        minBet: { type: integer, format: int64 }
+        maxBet: { type: integer, format: int64 }
+        capacity: { type: integer }
+        playerCount: { type: integer }
 
     Game:
       type: object

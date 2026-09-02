@@ -1,0 +1,46 @@
+// Package ws owns the realtime surface: one authenticated connection per
+// player, multiplexed across the lobby and at most one room. The server is
+// authoritative — clients send intents, and every inbound message runs the
+// same authorization gate as an HTTP request. Send buffers are bounded with
+// a drop policy: a slow client is closed, never allowed to block a room.
+package ws
+
+import (
+	"net/http"
+
+	"github.com/ai-doodoo-slots/services/backend/internal/admin"
+)
+
+// Identity is the authenticated caller attached to a connection, resolved
+// by the same path as HTTP (session cookie or Keycloak Bearer token).
+type Identity struct {
+	UserID      int64
+	SessionID   int64
+	IsGuest     bool
+	DisplayName string
+	Role        string
+	Status      string
+}
+
+// CanWatch reports whether the identity may connect at all. Banned and
+// self-excluded accounts may read, so they can still watch; only their bet
+// paths are blocked (enforced server-side at the bet handler).
+func (i *Identity) CanWatch() bool {
+	return true
+}
+
+// IsStaff reports moderator+.
+func (i *Identity) IsStaff() bool {
+	return i.Role == admin.RoleModerator || i.Role == admin.RoleAdmin
+}
+
+// Authenticator resolves the upgrade request to an Identity. It is supplied
+// by the httpapi layer so the socket shares the exact auth path of HTTP.
+type Authenticator func(r *http.Request) (*Identity, bool)
+
+// LobbyTopic and session/user topics are bus topics the hub listens to.
+const (
+	TopicLobby   = "lobby"
+	TopicSession = "session"
+	TopicUser    = "user"
+)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/ai-doodoo-slots/services/backend/internal/auth"
 	"github.com/ai-doodoo-slots/services/backend/internal/wallet"
+	"github.com/ai-doodoo-slots/services/backend/internal/ws"
 )
 
 // SignupBonusCredits is the starting balance for new guests.
@@ -65,6 +66,23 @@ func (s *Server) userFromKeycloakToken(ctx context.Context, raw string) *auth.Se
 		}
 	}
 	return res.User
+}
+
+// authIdentity adapts the shared HTTP auth path for WebSocket upgrades so
+// sockets never grow a second authorization mechanism.
+func (s *Server) authIdentity(r *http.Request) (*ws.Identity, bool) {
+	su := s.currentUser(r)
+	if su == nil {
+		return nil, false
+	}
+	return &ws.Identity{
+		UserID:      su.UserID,
+		SessionID:   su.SessionID,
+		IsGuest:     su.IsGuest,
+		DisplayName: su.DisplayName,
+		Role:        su.Role,
+		Status:      su.Status,
+	}, true
 }
 
 // handleKeycloakSession establishes the app-side identity after an OIDC
@@ -153,11 +171,14 @@ func (s *Server) handleAuthGuest(w http.ResponseWriter, r *http.Request) {
 	s.writeMe(w, r, su)
 }
 
-// handleLogout revokes the guest session and clears its cookie. Registered
-// users log out via the Keycloak end-session endpoint at the BFF.
+// handleLogout revokes the guest session, clears its cookie, and closes any
+// open socket for that session.
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	token, ok := auth.TokenFromRequest(r)
 	if ok {
+		if row, err := s.auth.SessionFromToken(r.Context(), token); err == nil {
+			s.publishSessionEvent(row.UserID, row.SessionID)
+		}
 		if err := s.auth.Logout(r.Context(), token); err != nil {
 			s.logger.Error("logout", "err", err)
 			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
@@ -245,6 +266,7 @@ func (s *Server) handleRevokeSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", "internal server error")
 		return
 	}
+	s.publishSessionEvent(su.UserID, id)
 	if id == su.SessionID {
 		auth.ClearCookie(w, s.cookieSecure)
 	}

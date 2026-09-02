@@ -11,6 +11,7 @@ import (
 
 	"github.com/ai-doodoo-slots/services/backend/internal/admin"
 	"github.com/ai-doodoo-slots/services/backend/internal/auth"
+	"github.com/ai-doodoo-slots/services/backend/internal/bus"
 	"github.com/ai-doodoo-slots/services/backend/internal/clock"
 	"github.com/ai-doodoo-slots/services/backend/internal/fair"
 	"github.com/ai-doodoo-slots/services/backend/internal/game"
@@ -18,6 +19,7 @@ import (
 	"github.com/ai-doodoo-slots/services/backend/internal/play"
 	"github.com/ai-doodoo-slots/services/backend/internal/theme"
 	"github.com/ai-doodoo-slots/services/backend/internal/wallet"
+	"github.com/ai-doodoo-slots/services/backend/internal/ws"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -37,6 +39,9 @@ type Server struct {
 	clock        clock.Clock
 	logger       *slog.Logger
 	cookieSecure bool
+
+	bus bus.Bus
+	hub *ws.Hub // set by WithHub; enables /api/v1/ws and lobby presence
 }
 
 // Option customizes the server at construction.
@@ -52,6 +57,31 @@ func WithThemeService(ts *theme.Service) Option {
 // guest-only mode.
 func WithOIDC(v *auth.OIDCVerifier) Option {
 	return func(s *Server) { s.oidc = v }
+}
+
+// WithHub enables the realtime surface: an authenticated WebSocket endpoint
+// at /api/v1/ws, room subscriptions, and live lobby presence. The hub rides
+// the server's in-process bus; cross-process wiring arrives with Redis.
+func WithHub() Option {
+	return func(s *Server) {
+		if s.bus == nil {
+			s.bus = bus.NewMemoryBus()
+		}
+		s.hub = ws.NewHub(s.authIdentity, s.roomSource(), s.bus, s.clock, s.logger)
+	}
+}
+
+// Hub exposes the hub for callers that need to drive it (gameserver).
+func (s *Server) Hub() *ws.Hub { return s.hub }
+
+// Bus exposes the event bus.
+func (s *Server) Bus() bus.Bus { return s.bus }
+
+// Run starts background loops (the hub). Call from a goroutine.
+func (s *Server) Run(ctx context.Context) {
+	if s.hub != nil {
+		s.hub.Run(ctx)
+	}
 }
 
 // NewServer constructs the HTTP server with its dependency set.
@@ -103,6 +133,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/me/deposit", s.handleDeposit)
 	mux.HandleFunc("POST /api/v1/themes", s.handleCreateTheme)
 	mux.HandleFunc("GET /api/v1/themes", s.handleListThemes)
+	mux.HandleFunc("GET /api/v1/lobby", s.handleLobby)
+	mux.HandleFunc("GET /api/v1/rooms/{slug}", s.handleRoomDetail)
+	if s.hub != nil {
+		mux.HandleFunc("GET /api/v1/ws", s.hub.ServeHTTP)
+	}
 	return s.withLogging(s.withRecover(mux))
 }
 

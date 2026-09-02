@@ -52,14 +52,24 @@ services/backend    one Go module
     auth            guest sessions (opaque tokens), Keycloak OIDC (JWKS),
                     identity provisioning, guest upgrade in place
     wallet          append-only ledger, FOR UPDATE locking, idempotency
-    fair            provably-fair byte stream (personal + chain modes)
+    fair            provably-fair byte stream (personal + chain modes),
+                    commit-reveal chain generation and reveal
     game, game/slots  engine interface, registry, 3x3 five-payline slots
+    game            RoundGame interface for shared-round games (crash next)
+    bus             in-process event publisher (Redis swap later)
+    ws              authenticated WebSocket hub, rooms, 1Hz lobby summaries,
+                    bounded send buffers, session revocation closes sockets
     play            the single transaction every bet runs inside
     theme           OpenRouter client, strict sprite validation
     admin           RBAC, ban/self-exclusion, audit log
     store           sqlc output (pgx/v5)
     clock           injectable time; no time.Now anywhere else (enforced by test)
 ```
+
+Process shape: `api` (stateless, :8080) and `gameserver` (round loops +
+realtime, :8082) both speak the same surface; the WebSocket endpoint is
+`GET /api/v1/ws`, authenticated by the exact same session/Bearer path as
+HTTP. Bans, self-exclusion, and session revocation close open sockets.
 
 ### Provably fair
 

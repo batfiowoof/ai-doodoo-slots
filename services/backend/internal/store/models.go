@@ -40,6 +40,7 @@ type ChainSeed struct {
 	SeedHash   string
 	SeedPlain  pgtype.Text
 	RevealedAt *time.Time
+	ChainGroup int64
 }
 
 type EmailToken struct {

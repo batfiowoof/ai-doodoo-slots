@@ -82,9 +82,19 @@ func main() {
 		logger.Info("KEYCLOAK_ISSUER not set; guest-only mode")
 	}
 
+	// The realtime surface rides the same process in single-node dev; the
+	// gameserver is the multi-process home for round loops and sockets.
+	opts = append(opts, httpapi.WithHub())
+
+	api := httpapi.NewServer(pool, clock.Real{}, logger,
+		envOr("COOKIE_SECURE", "false") == "true",
+		opts...,
+	)
+	go api.Run(ctx)
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewServer(pool, clock.Real{}, logger, envOr("COOKIE_SECURE", "false") == "true", opts...).Handler(),
+		Handler:           api.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

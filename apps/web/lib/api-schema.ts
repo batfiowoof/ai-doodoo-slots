@@ -273,6 +273,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ws": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Authenticated WebSocket (same session/Bearer auth as HTTP)
+         * @description Client messages: subscribe_lobby, unsubscribe_lobby, join_room {slug},
+         *     leave_room. Server messages: lobby_summary (1Hz), room_snapshot (on
+         *     join and reconnect), session_revoked, error. place_bet and cash_out
+         *     arrive with the round games.
+         */
+        get: operations["connectSocket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/themes": {
         parameters: {
             query?: never;
@@ -426,6 +449,19 @@ export interface components {
             expiresAt: string;
             ip?: string | null;
             userAgent?: string | null;
+        };
+        Room: {
+            /** Format: int64 */
+            id: number;
+            slug: string;
+            name: string;
+            gameId: string;
+            /** Format: int64 */
+            minBet: number;
+            /** Format: int64 */
+            maxBet: number;
+            capacity: number;
+            playerCount: number;
         };
         Game: {
             id: string;
@@ -877,6 +913,25 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    connectSocket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Switching Protocols */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
         };
     };
     listThemes: {

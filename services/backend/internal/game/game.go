@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/ai-doodoo-slots/services/backend/internal/fair"
 )
@@ -33,6 +34,53 @@ type Game interface {
 type Registry struct {
 	mu    sync.RWMutex
 	games map[string]Game
+}
+
+// PhaseKind is one state of a shared round.
+type PhaseKind string
+
+const (
+	PhaseBettingOpen PhaseKind = "betting_open"
+	PhaseLocked      PhaseKind = "locked"
+	PhaseRunning     PhaseKind = "running"
+	PhaseSettled     PhaseKind = "settled"
+)
+
+// Phase is one state of the round state machine and how long it lasts.
+type Phase struct {
+	Kind     PhaseKind
+	Duration time.Duration
+}
+
+// RoundResult is what a shared round resolved to. Payload is game-specific
+// and rendered by the client.
+type RoundResult struct {
+	// Multiplier is the round's canonical outcome (1.0+ for crash-style
+	// games); games that do not use multipliers report 0.
+	Multiplier float64
+	Payload    json.RawMessage
+}
+
+// RoundBet is a player's stake in a shared round plus their declared
+// per-round options (e.g. a crash auto-cashout target), set at bet time.
+type RoundBet struct {
+	BetCredits int64
+	Options    json.RawMessage
+}
+
+// RoundGame is the shared-round engine contract. Resolve and SettleBet must
+// be pure and deterministic given the stream/result, so a whole round can be
+// replayed from its seed and inputs for auditing or dispute.
+type RoundGame interface {
+	ID() string
+	// Phases returns the state machine in transition order with durations.
+	Phases() []Phase
+	// Resolve derives the round outcome from the chain-derived stream.
+	Resolve(s *fair.Stream) (RoundResult, error)
+	// SettleBet computes a player's payout (0 when the bet loses) from the
+	// round result.
+	SettleBet(r RoundResult, b RoundBet) (int64, error)
+	TheoreticalRTP() float64
 }
 
 func NewRegistry() *Registry {

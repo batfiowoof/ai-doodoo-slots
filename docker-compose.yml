@@ -58,6 +58,22 @@ services:
     # Migrations run before the API starts.
     command: ["sh", "-c", "migrate up && api"]
 
+  gameserver:
+    build: ./services/backend
+    environment:
+      DATABASE_URL: postgres://retro:retro@postgres:5432/retrocasino?sslmode=disable
+      GAMESERVER_ADDR: ":8082"
+      COOKIE_SECURE: "false"
+      KEYCLOAK_ISSUER: http://localhost:8081/realms/retro-casino
+      KEYCLOAK_CLIENT_ID: web
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/retro-casino/protocol/openid-connect/certs
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["gameserver"]
+
   web:
     build: ./apps/web
     environment:

@@ -1,7 +1,7 @@
 // Command gameserver is the stateful process that owns round loops. Round
 // state lives here in memory; API nodes fan its events out to their own
-// connected sockets. Round loops arrive in phase 13 (crash engine); until
-// then this binary exists so the deployment shape is real from day one.
+// connected sockets. Round loops arrive in phase 13 (crash engine); this
+// binary already carries the realtime surface (phase 12).
 package main
 
 import (
@@ -30,7 +30,7 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	addr := envOr("GAMESERVER_ADDR", ":8081")
+	addr := envOr("GAMESERVER_ADDR", ":8082")
 	dsn := envOr("DATABASE_URL", "postgres://retro:retro@localhost:55432/retrocasino?sslmode=disable")
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -43,9 +43,17 @@ func main() {
 	}
 	defer pool.Close()
 
+	// The gameserver owns round loops (phase 13) and the realtime surface:
+	// hub, rooms, and lobby presence ride the in-process bus.
+	api := httpapi.NewServer(pool, clock.Real{}, logger,
+		envOr("COOKIE_SECURE", "false") == "true",
+		httpapi.WithHub(),
+	)
+	go api.Run(ctx)
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewServer(pool, clock.Real{}, logger, envOr("COOKIE_SECURE", "false") == "true").Handler(),
+		Handler:           api.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

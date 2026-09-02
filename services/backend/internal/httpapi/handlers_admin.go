@@ -56,6 +56,9 @@ func (s *Server) handleBan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", "internal server error")
 		return
 	}
+	// Status changes take effect immediately: open sockets of the banned
+	// account go down.
+	s.publishStatusEvent(targetID, status)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -172,5 +175,6 @@ func (s *Server) handleSelfExclude(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", "internal server error")
 		return
 	}
+	s.publishStatusEvent(su.UserID, admin.StatusSelfExcluded)
 	writeJSON(w, http.StatusOK, map[string]any{"status": admin.StatusSelfExcluded, "statusUntil": until})
 }
