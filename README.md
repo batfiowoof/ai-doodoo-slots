@@ -18,6 +18,28 @@ docker compose up -d --build
 
 Opening the page creates a guest session with 1000 credits automatically.
 
+## Accounts
+
+Guest play needs no account: opening the page creates a guest session with
+1000 credits automatically. Registered users authenticate through **Keycloak**
+(OpenID Connect, authorization code + PKCE). The first Keycloak login
+upgrades the current guest **in place** — the same user row keeps its
+wallet, bets, history, and seeds.
+
+Login: the web BFF at `/auth/login` redirects to Keycloak and stores the
+token set in an httpOnly cookie; the BFF proxy attaches the access token as
+a Bearer credential to API calls. Roles (`player`, `moderator`, `admin`)
+come from Keycloak realm roles and are synced onto the local user row;
+bans and self-exclusion stay local.
+
+Test users (auto-imported realm, sign-in at http://localhost:8081):
+
+| User | Password | Role |
+|---|---|---|
+| `player` | `player123` | player |
+| `moderator` | `mod123` | moderator |
+| `admin` | `admin123` | admin |
+
 ## Architecture
 
 ```
@@ -27,7 +49,8 @@ services/backend    one Go module
   cmd/gameserver    stateful round loops (crash, later)
   cmd/migrate       goose migrations (embedded)
   internal/
-    auth            sessions (opaque tokens), passwords (argon2id), accounts
+    auth            guest sessions (opaque tokens), Keycloak OIDC (JWKS),
+                    identity provisioning, guest upgrade in place
     wallet          append-only ledger, FOR UPDATE locking, idempotency
     fair            provably-fair byte stream (personal + chain modes)
     game, game/slots  engine interface, registry, 3x3 five-payline slots
@@ -74,7 +97,10 @@ from it (`npm run -w apps/web gen:api` or `npx openapi-typescript
 | Variable | Where | Purpose |
 |---|---|---|
 | `DATABASE_URL` | api | Postgres DSN (default: compose network) |
-| `COOKIE_SECURE` | api | Set `true` behind HTTPS |
-| `ADMIN_EMAILS` | api | Emails granted the admin role |
+| `COOKIE_SECURE` | api, web | Set `true` behind HTTPS |
+| `KEYCLOAK_ISSUER` | api, web | Public realm URL, e.g. `http://localhost:8081/realms/retro-casino`; unset = guest-only mode |
+| `KEYCLOAK_CLIENT_ID` | api, web | OIDC client (default `web`) |
+| `KEYCLOAK_JWKS_URL` / `KEYCLOAK_TOKEN_URL` / `KEYCLOAK_AUTH_URL` / `KEYCLOAK_END_SESSION_URL` | api, web | Internal-network endpoint overrides (compose) |
+| `KEYCLOAK_PUBLIC_AUTH_URL` / `KEYCLOAK_PUBLIC_END_SESSION_URL` | web | Browser-facing redirect targets (compose) |
 | `OPENROUTER_API_KEY` | api | Enables AI theme generation |
 | `API_URL` | web | Upstream Go API for the BFF proxy |

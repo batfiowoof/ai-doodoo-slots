@@ -1,4 +1,26 @@
 services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # Tokens are minted with iss = public URL. Apps running on the host
+      # reach Keycloak at localhost:8081; compose-internal callers use the
+      # KEYCLOAK_*_URL overrides on the api/web services below.
+      KC_FRONTEND_URL: http://localhost:8081
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./keycloak/retro-casino-realm.json:/opt/keycloak/data/import/retro-casino-realm.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\\nHost: localhost\\nConnection: close\\n\\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -22,9 +44,12 @@ services:
       DATABASE_URL: postgres://retro:retro@postgres:5432/retrocasino?sslmode=disable
       API_ADDR: ":8080"
       COOKIE_SECURE: "false"
-      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODELS: ${OPENROUTER_MODELS:-}
+      KEYCLOAK_ISSUER: http://localhost:8081/realms/retro-casino
+      KEYCLOAK_CLIENT_ID: web
+      # Internal override: the container cannot reach the public frontend URL.
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/retro-casino/protocol/openid-connect/certs
     ports:
       - "8080:8080"
     depends_on:
@@ -38,6 +63,16 @@ services:
     environment:
       # Same-origin BFF inside the compose network.
       API_URL: http://api:8080
+      KEYCLOAK_ISSUER: http://localhost:8081/realms/retro-casino
+      KEYCLOAK_CLIENT_ID: web
+      # Internal overrides: the browser uses the public URL; the server
+      # reaches Keycloak over the compose network.
+      KEYCLOAK_AUTH_URL: http://keycloak:8080/realms/retro-casino/protocol/openid-connect/auth
+      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/retro-casino/protocol/openid-connect/token
+      KEYCLOAK_END_SESSION_URL: http://keycloak:8080/realms/retro-casino/protocol/openid-connect/logout
+      # Public URLs used for browser-facing redirects.
+      KEYCLOAK_PUBLIC_AUTH_URL: http://localhost:8081/realms/retro-casino/protocol/openid-connect/auth
+      KEYCLOAK_PUBLIC_END_SESSION_URL: http://localhost:8081/realms/retro-casino/protocol/openid-connect/logout
     ports:
       - "3000:3000"
     depends_on:

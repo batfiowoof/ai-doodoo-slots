@@ -58,121 +58,46 @@ paths:
         "429":
           $ref: "#/components/responses/Error"
 
-  /api/v1/auth/register:
+  /api/v1/auth/keycloak/session:
     post:
-      operationId: register
+      operationId: keycloakSession
       tags: [auth]
-      summary: Register with email + password
-      description: Upgrades a guest in place — the same user row (wallet, bets, seeds) is retained and the session token is rotated. Also creates a new account when called without a session.
+      summary: Establish the app identity from a Keycloak access token
+      description: >-
+        Called by the BFF after an OIDC authorization-code exchange. Verifies
+        the access token against the realm JWKS, provisions the local user on
+        first login, and upgrades any guest session cookie in place — the
+        same user row (wallet, bets, seeds) is retained and the guest
+        session is revoked.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [email, password]
+              required: [accessToken]
               properties:
-                email: { type: string, format: email }
-                password: { type: string, minLength: 8 }
+                accessToken: { type: string }
       responses:
         "200":
-          description: Registered; new session cookie set
+          description: Identity established
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Me" }
-        "409":
-          $ref: "#/components/responses/Error"
-
-  /api/v1/auth/login:
-    post:
-      operationId: login
-      tags: [auth]
-      summary: Log in
-      description: Generic failure text for unknown email and wrong password alike; identical timing via dummy hash.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email, password]
-              properties:
-                email: { type: string, format: email }
-                password: { type: string }
-      responses:
-        "200":
-          description: Logged in
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Me" }
-        "401":
-          $ref: "#/components/responses/Error"
-        "429":
-          $ref: "#/components/responses/Error"
+        "401": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
 
   /api/v1/auth/logout:
     post:
       operationId: logout
       tags: [auth]
-      summary: Revoke the current session and close its sockets
+      summary: Revoke the current guest session and clear its cookie
+      description: >-
+        Registered users authenticate via Keycloak and log out through the
+        realm's end-session endpoint at the BFF; this endpoint only owns
+        guest sessions.
       responses:
         "204": { description: Revoked }
-
-  /api/v1/auth/verify:
-    post:
-      operationId: verifyEmail
-      tags: [auth]
-      summary: Consume an email verification token
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [token]
-              properties:
-                token: { type: string }
-      responses:
-        "204": { description: Verified }
-        "400": { $ref: "#/components/responses/Error" }
-
-  /api/v1/auth/forgot:
-    post:
-      operationId: forgotPassword
-      tags: [auth]
-      summary: Request a password reset
-      description: Always returns 202 whether or not the account exists.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email]
-              properties:
-                email: { type: string, format: email }
-      responses:
-        "202": { description: Accepted }
-
-  /api/v1/auth/reset:
-    post:
-      operationId: resetPassword
-      tags: [auth]
-      summary: Consume a reset token and set a new password
-      description: Revokes every session for the user.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [token, password]
-              properties:
-                token: { type: string }
-                password: { type: string, minLength: 8 }
-      responses:
-        "204": { description: Reset }
-        "400": { $ref: "#/components/responses/Error" }
 
   /api/v1/auth/sessions:
     get:
@@ -233,6 +158,9 @@ paths:
       operationId: getMe
       tags: [user]
       summary: Current user, wallet balance, and role
+      description: >-
+        Resolves a Keycloak Bearer token (Authorization header) first, then
+        the guest session cookie.
       responses:
         "200":
           description: Current identity

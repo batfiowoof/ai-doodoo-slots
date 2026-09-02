@@ -41,7 +41,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/register": {
+    "/api/v1/auth/keycloak/session": {
         parameters: {
             query?: never;
             header?: never;
@@ -51,30 +51,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Register with email + password
-         * @description Upgrades a guest in place — the same user row (wallet, bets, seeds) is retained and the session token is rotated. Also creates a new account when called without a session.
+         * Establish the app identity from a Keycloak access token
+         * @description Called by the BFF after an OIDC authorization-code exchange. Verifies the access token against the realm JWKS, provisions the local user on first login, and upgrades any guest session cookie in place — the same user row (wallet, bets, seeds) is retained and the guest session is revoked.
          */
-        post: operations["register"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/login": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Log in
-         * @description Generic failure text for unknown email and wrong password alike; identical timing via dummy hash.
-         */
-        post: operations["login"];
+        post: operations["keycloakSession"];
         delete?: never;
         options?: never;
         head?: never;
@@ -90,65 +70,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Revoke the current session and close its sockets */
+        /**
+         * Revoke the current guest session and clear its cookie
+         * @description Registered users authenticate via Keycloak and log out through the realm's end-session endpoint at the BFF; this endpoint only owns guest sessions.
+         */
         post: operations["logout"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/verify": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Consume an email verification token */
-        post: operations["verifyEmail"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/forgot": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Request a password reset
-         * @description Always returns 202 whether or not the account exists.
-         */
-        post: operations["forgotPassword"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/reset": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Consume a reset token and set a new password
-         * @description Revokes every session for the user.
-         */
-        post: operations["resetPassword"];
         delete?: never;
         options?: never;
         head?: never;
@@ -230,7 +156,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Current user, wallet balance, and role */
+        /**
+         * Current user, wallet balance, and role
+         * @description Resolves a Keycloak Bearer token (Authorization header) first, then the guest session cookie.
+         */
         get: operations["getMe"];
         put?: never;
         post?: never;
@@ -674,7 +603,7 @@ export interface operations {
             429: components["responses"]["Error"];
         };
     };
-    register: {
+    keycloakSession: {
         parameters: {
             query?: never;
             header?: never;
@@ -684,43 +613,12 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** Format: email */
-                    email: string;
-                    password: string;
+                    accessToken: string;
                 };
             };
         };
         responses: {
-            /** @description Registered; new session cookie set */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Me"];
-                };
-            };
-            409: components["responses"]["Error"];
-        };
-    };
-    login: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** Format: email */
-                    email: string;
-                    password: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Logged in */
+            /** @description Identity established */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -730,7 +628,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Error"];
-            429: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     logout: {
@@ -749,82 +647,6 @@ export interface operations {
                 };
                 content?: never;
             };
-        };
-    };
-    verifyEmail: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    token: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Verified */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            400: components["responses"]["Error"];
-        };
-    };
-    forgotPassword: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** Format: email */
-                    email: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Accepted */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    resetPassword: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    token: string;
-                    password: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Reset */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            400: components["responses"]["Error"];
         };
     };
     listSessions: {

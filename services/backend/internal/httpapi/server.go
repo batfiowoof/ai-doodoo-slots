@@ -7,12 +7,10 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
-	"strings"
 	"time"
 
-	"github.com/ai-doodoo-slots/services/backend/internal/auth"
 	"github.com/ai-doodoo-slots/services/backend/internal/admin"
+	"github.com/ai-doodoo-slots/services/backend/internal/auth"
 	"github.com/ai-doodoo-slots/services/backend/internal/clock"
 	"github.com/ai-doodoo-slots/services/backend/internal/fair"
 	"github.com/ai-doodoo-slots/services/backend/internal/game"
@@ -27,7 +25,7 @@ import (
 type Server struct {
 	pool         *pgxpool.Pool
 	auth         *auth.Service
-	accounts     *auth.Accounts
+	oidc         *auth.OIDCVerifier // nil when Keycloak is not configured
 	wallet       *wallet.Wallet
 	fair         *fair.Service
 	registry     *game.Registry
@@ -50,31 +48,28 @@ func WithThemeService(ts *theme.Service) Option {
 	return func(s *Server) { s.themes = ts }
 }
 
+// WithOIDC attaches Keycloak token verification. Without it the API runs in
+// guest-only mode.
+func WithOIDC(v *auth.OIDCVerifier) Option {
+	return func(s *Server) { s.oidc = v }
+}
+
 // NewServer constructs the HTTP server with its dependency set.
 func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieSecure bool, opts ...Option) *Server {
 	registry := game.NewRegistry()
 	registry.Register(slots.Classic())
 	registry.Register(slots.FruitSalad())
 	registry.Register(slots.Treasure())
-	var adminEmails []string
-	if v := os.Getenv("ADMIN_EMAILS"); v != "" {
-		for _, e := range strings.Split(v, ",") {
-			if e = strings.TrimSpace(e); e != "" {
-				adminEmails = append(adminEmails, e)
-		}
-	}
-}
 	s := &Server{
 		pool:         pool,
 		auth:         auth.NewService(pool, clk, logger),
-		accounts:     auth.NewAccounts(pool, clk, logger, adminEmails...),
 		wallet:       wallet.New(pool),
 		fair:         fair.NewService(pool),
 		registry:     registry,
 		play:         play.NewService(pool, registry),
 		playLimiter:  newRateLimiter(clk, playWindow, playMax),
 		authLimiter:  newRateLimiter(clk, time.Minute, 30),
-	admin:        admin.NewService(pool),
+		admin:        admin.NewService(pool),
 		themes:       nil,
 		clock:        clk,
 		logger:       logger,
@@ -91,12 +86,8 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("POST /api/v1/auth/guest", s.handleAuthGuest)
-	mux.HandleFunc("POST /api/v1/auth/register", s.handleRegister)
-	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
+	mux.HandleFunc("POST /api/v1/auth/keycloak/session", s.handleKeycloakSession)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)
-	mux.HandleFunc("POST /api/v1/auth/verify", s.handleVerifyEmail)
-	mux.HandleFunc("POST /api/v1/auth/forgot", s.handleForgotPassword)
-	mux.HandleFunc("POST /api/v1/auth/reset", s.handleResetPassword)
 	mux.HandleFunc("GET /api/v1/auth/sessions", s.handleListSessions)
 	mux.HandleFunc("DELETE /api/v1/auth/sessions/{id}", s.handleRevokeSession)
 	mux.HandleFunc("GET /api/v1/me", s.handleMe)

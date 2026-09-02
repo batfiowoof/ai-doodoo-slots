@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ai-doodoo-slots/services/backend/internal/auth"
 	"github.com/ai-doodoo-slots/services/backend/internal/clock"
 	"github.com/ai-doodoo-slots/services/backend/internal/httpapi"
 	"github.com/ai-doodoo-slots/services/backend/internal/theme"
@@ -60,6 +61,25 @@ func main() {
 		logger.Info("theme generation enabled")
 	} else {
 		logger.Info("OPENROUTER_API_KEY not set; theme generation disabled")
+	}
+
+	// Keycloak OIDC: when an issuer is configured, registered users
+	// authenticate with Keycloak access tokens and the BFF forwards them as
+	// Bearer credentials. Without it the API runs guest-only.
+	if issuer := os.Getenv("KEYCLOAK_ISSUER"); issuer != "" {
+		cfg := auth.OIDCConfig{
+			Issuer:        issuer,
+			ClientID:      envOr("KEYCLOAK_CLIENT_ID", "web"),
+			AuthURL:       os.Getenv("KEYCLOAK_AUTH_URL"),
+			TokenURL:      os.Getenv("KEYCLOAK_TOKEN_URL"),
+			JWKSURL:       os.Getenv("KEYCLOAK_JWKS_URL"),
+			EndSessionURL: os.Getenv("KEYCLOAK_END_SESSION_URL"),
+		}
+		verifier := auth.NewOIDCVerifier(cfg, clock.Real{}, logger)
+		opts = append(opts, httpapi.WithOIDC(verifier))
+		logger.Info("keycloak auth enabled", "issuer", issuer)
+	} else {
+		logger.Info("KEYCLOAK_ISSUER not set; guest-only mode")
 	}
 
 	srv := &http.Server{

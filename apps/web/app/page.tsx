@@ -137,6 +137,29 @@ export default function GameMenu() {
             >
               {balance === undefined ? "····" : balance.toLocaleString()}
             </span>
+            {session.data && !session.data.user.isGuest && (
+              <span
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: 11,
+                  letterSpacing: 1,
+                  color: "#cfc4f2",
+                  maxWidth: 160,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+                title={session.data.user.email ?? session.data.user.displayName}
+              >
+                {session.data.user.displayName}
+              </span>
+            )}
+            {session.data?.user.isGuest && (
+              <NavLink href="/auth/login?next=/">LOGIN</NavLink>
+            )}
+            {session.data && !session.data.user.isGuest && (
+              <NavLink href="/auth/logout">LOGOUT</NavLink>
+            )}
             <NavLink href="/verify">VERIFY</NavLink>
             <button
               type="button"
