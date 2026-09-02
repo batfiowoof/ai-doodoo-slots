@@ -38,7 +38,7 @@ func newFixture(t *testing.T) *fixture {
 	ctx := context.Background()
 
 	registry := game.NewRegistry()
-	registry.Register(slots.New())
+	registry.Register(slots.Classic())
 	svc := NewService(pool, registry)
 	w := wallet.New(pool)
 	fsvc := fair.NewService(pool)

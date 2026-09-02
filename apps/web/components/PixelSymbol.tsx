@@ -1,21 +1,42 @@
 "use client";
 
+import { useState } from "react";
 import { GLYPHS, GLYPH_SIZE } from "@/lib/symbols";
 import { useTheme } from "@/lib/theme";
 import { spriteDataUrl } from "@/lib/spriteRenderer";
 
 interface PixelSymbolProps {
   index: number;
+  /** Sprite file base under /sprites/ (e.g. "cherry"). Wins over glyphs. */
+  icon?: string;
   /** Integer scale factor only — fractional scaling kills the effect. */
   scale?: number;
 }
 
-export default function PixelSymbol({ index, scale = 4 }: PixelSymbolProps) {
+export default function PixelSymbol({ index, icon, scale = 4 }: PixelSymbolProps) {
   const theme = useTheme();
+  const [iconFailed, setIconFailed] = useState(false);
+
+  // Shipped icon assets: one 32x32 PNG per symbol.
+  if (icon && !iconFailed) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={`/sprites/${icon}.png`}
+        width={32 * scale}
+        height={32 * scale}
+        onError={() => setIconFailed(true)}
+        className="pixelated shrink-0"
+        alt=""
+        draggable={false}
+      />
+    );
+  }
+
   const themePalette = theme?.palette;
   const themeSprite = theme?.sprites[index];
 
-  // Generated theme sprite, drawn once at 1:1 and scaled by integers.
+  // Generated theme sprite (classic game only), drawn once at 1:1.
   if (themePalette && themeSprite && themeSprite.rows.length === 16) {
     const url = spriteDataUrl(theme.id, index, themePalette, themeSprite.rows);
     if (url) {
@@ -33,7 +54,7 @@ export default function PixelSymbol({ index, scale = 4 }: PixelSymbolProps) {
     }
   }
 
-  // Shipped icon set: per-symbol palette, crisp edges.
+  // Placeholder glyph: 16x16, per-symbol palette, crisp edges.
   const glyph = GLYPHS[index % GLYPHS.length];
   const cells: Array<{ x: number; y: number; fill: string }> = [];
   glyph.rows.forEach((row, y) => {

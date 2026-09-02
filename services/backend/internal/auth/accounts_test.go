@@ -57,7 +57,7 @@ func TestGuestUpgradePreservesEverything(t *testing.T) {
 		t.Fatal(err)
 	}
 	registry := game.NewRegistry()
-	registry.Register(slots.New())
+	registry.Register(slots.Classic())
 	betRes, err := play.NewService(pool, registry).Play(ctx, user.ID, "slots", 10, "upgrade-seed", fmt.Sprintf("upgrade-bet:%d", user.ID))
 	if err != nil {
 		t.Fatalf("guest bet: %v", err)

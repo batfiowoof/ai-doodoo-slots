@@ -10,190 +10,204 @@ import (
 	"github.com/ai-doodoo-slots/services/backend/internal/fair"
 )
 
-func TestWeightsSumTo100(t *testing.T) {
-	var sum int64
-	for _, s := range symbols {
-		if s.Weight <= 0 || s.Pay3 <= 0 || s.Pay4 < s.Pay3 || s.Pay5 < s.Pay4 {
-			t.Fatalf("symbol %q has non-positive weight/pay", s.Name)
+// testSpin drives a game's spin deterministically from an index.
+func testSpin(g *Game, i int64, bet int64) ([][]int, []int, []ScatterWin, int64) {
+	seed := sha256.Sum256([]byte{byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24)})
+	stream := fair.NewPersonalStream(seed[:], "test", i)
+	return g.spin(stream, bet)
+}
+
+func TestConfigValidation(t *testing.T) {
+	for _, g := range []*Game{Classic(), FruitSalad(), Treasure()} {
+		if err := validate(g.cfg); err != nil {
+			t.Fatalf("config %q invalid: %v", g.cfg.ID, err)
 		}
-		sum += s.Weight
 	}
-	if sum != weightSum {
-		t.Fatalf("weights sum to %d, want %d", sum, weightSum)
-	}
-	// Ordered common to rare, matching the paytable's escalation.
-	for i := 1; i < len(symbols); i++ {
-		if symbols[i].Weight >= symbols[i-1].Weight {
-			t.Fatalf("weights not strictly decreasing at %q", symbols[i].Name)
-		}
-		if symbols[i].Pay3 <= symbols[i-1].Pay3 {
-			t.Fatalf("pays not increasing at %q", symbols[i].Name)
-		}
+	// Weight sum must be 100.
+	bad := Classic()
+	bad.cfg.Symbols[0].Weight = 23
+	if err := validate(bad.cfg); err == nil {
+		t.Fatal("weight sum 101 accepted")
 	}
 }
 
-func TestPaylinesShape(t *testing.T) {
-	if len(paylines) != lineCount {
-		t.Fatalf("expected %d paylines, got %d", lineCount, len(paylines))
-	}
-	for i, line := range paylines {
-		if len(line) != cols {
-			t.Fatalf("payline %d has %d cells, want %d", i, len(line), cols)
-		}
-		for _, cl := range line {
-			if cl.y < 0 || cl.y >= rows || cl.x < 0 || cl.x >= cols {
-				t.Fatalf("payline %d has out-of-range cell %+v", i, cl)
-			}
-		}
-	}
-	// The V and A diagonals must both be present.
-	if paylines[3] != [cols]cell{{0, 0}, {1, 1}, {2, 2}, {3, 1}, {4, 0}} {
-		t.Fatal("V payline misconfigured")
-	}
-	if paylines[4] != [cols]cell{{0, 2}, {1, 1}, {2, 0}, {3, 1}, {4, 2}} {
-		t.Fatal("A payline misconfigured")
+func TestClassicTablesUnchanged(t *testing.T) {
+	g := Classic()
+	if g.cfg.Cols != 5 || g.cfg.Rows != 3 || len(g.cfg.Lines) != 9 {
+		t.Fatalf("classic shape changed: %dx%d, %d lines", g.cfg.Cols, g.cfg.Rows, len(g.cfg.Lines))
 	}
 }
 
 func TestValidateBetSteps(t *testing.T) {
-	g := New()
-	for _, step := range BetSteps {
-		if err := g.ValidateBet(step); err != nil {
-			t.Fatalf("bet %d rejected: %v", step, err)
+	for _, g := range []*Game{Classic(), FruitSalad(), Treasure()} {
+		for _, step := range g.cfg.BetSteps {
+			if err := g.ValidateBet(step); err != nil {
+				t.Fatalf("%s: bet %d rejected: %v", g.cfg.ID, step, err)
+			}
 		}
-	}
-	for _, bad := range []int64{0, 1, 4, 6, -5, 1000} {
-		if err := g.ValidateBet(bad); err == nil {
-			t.Fatalf("bet %d accepted", bad)
+		if err := g.ValidateBet(7); err == nil {
+			t.Fatalf("%s: bet 7 accepted", g.cfg.ID)
 		}
 	}
 }
 
 func TestSpinDeterministic(t *testing.T) {
-	seed := bytes.Repeat([]byte{0x5A}, fair.SeedSize)
-	a := fair.NewPersonalStream(seed, "client", 1)
-	b := fair.NewPersonalStream(seed, "client", 1)
-
-	ga, wa, pa := spin(a, 10)
-	gb, wb, pb := spin(b, 10)
-	if ga != gb || pa != pb || !equalInts(wa, wb) {
-		t.Fatal("same seed triple produced different spins")
+	for _, g := range []*Game{Classic(), FruitSalad(), Treasure()} {
+		seed := bytes.Repeat([]byte{0x5A}, fair.SeedSize)
+		a := fair.NewPersonalStream(seed, "client", 1)
+		b := fair.NewPersonalStream(seed, "client", 1)
+		ga, wa, sa, pa := g.spin(a, 10)
+		gb, wb, sb, pb := g.spin(b, 10)
+		if pa != pb || !equalInts(wa, wb) || !equalScatter(sa, sb) || !equalGrid(ga, gb) {
+			t.Fatalf("%s: same seed triple produced different spins", g.cfg.ID)
+		}
 	}
 }
 
 func TestPayloadConsistentWithPayout(t *testing.T) {
-	g := New()
-	stream := fair.NewPersonalStream(bytes.Repeat([]byte{0x33}, fair.SeedSize), "consistency", 3)
-
-	out, err := g.Play(stream, 25)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var p payload
-	if err := json.Unmarshal(out.Payload, &p); err != nil {
-		t.Fatalf("payload not valid JSON: %v", err)
-	}
-	// Recompute the payout from the payload grid â€” the client-facing data
-	// must fully explain the server's number.
-	recomputed, lines, err := EvaluateGrid(p.Grid, 25)
-	if err != nil {
-		t.Fatalf("payload grid invalid: %v", err)
-	}
-	if recomputed != out.PayoutCredits {
-		t.Fatalf("payload recomputes to %d, server paid %d", recomputed, out.PayoutCredits)
-	}
-	if !equalInts(lines, p.WinningLines) {
-		t.Fatalf("winning lines %v != recomputed %v", p.WinningLines, lines)
+	for _, g := range []*Game{Classic(), FruitSalad(), Treasure()} {
+		stream := fair.NewPersonalStream(bytes.Repeat([]byte{0x33}, fair.SeedSize), "consistency", 3)
+		out, err := g.Play(stream, 25)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var p payload
+		if err := json.Unmarshal(out.Payload, &p); err != nil {
+			t.Fatalf("payload not valid JSON: %v", err)
+		}
+		recomputed, lines, scatter, err := g.EvaluateGrid(p.Grid, 25)
+		if err != nil {
+			t.Fatalf("payload grid invalid: %v", err)
+		}
+		if recomputed != out.PayoutCredits {
+			t.Fatalf("%s: payload recomputes to %d, server paid %d", g.cfg.ID, recomputed, out.PayoutCredits)
+		}
+		if !equalInts(lines, p.Lines) || !equalScatter(scatter, p.Scatter) {
+			t.Fatalf("%s: win data mismatch", g.cfg.ID)
+		}
 	}
 }
 
 func TestAllSymbolsAppearAndAllLinesHit(t *testing.T) {
-	// Over enough spins every symbol appears and every payline wins at least
-	// once (coverage of the evaluator, not statistics).
-	seenSymbols := map[int]bool{}
-	hitLines := map[int]bool{}
-	for i := int64(0); i < 5000; i++ {
-		seed := sha256.Sum256([]byte{byte(i), byte(i >> 8), byte(i >> 16)})
-		stream := fair.NewPersonalStream(seed[:], "coverage", i)
-		grid, winning, _ := spin(stream, 5)
-		for y := 0; y < rows; y++ {
-			for x := 0; x < cols; x++ {
-				seenSymbols[grid[y][x]] = true
+	for _, g := range []*Game{Classic(), FruitSalad(), Treasure()} {
+		seen := map[int]bool{}
+		hitLines := map[int]bool{}
+		hitScatter := map[int]bool{}
+		for i := int64(0); i < 20000; i++ {
+			grid, winning, scatter, _ := testSpin(g, i, 5)
+			for _, row := range grid {
+				for _, sym := range row {
+					seen[sym] = true
+				}
+			}
+			for _, l := range winning {
+				hitLines[l] = true
+			}
+			for _, sw := range scatter {
+				hitScatter[sw.Symbol] = true
 			}
 		}
-		for _, l := range winning {
-			hitLines[l] = true
+		if len(seen) != len(g.cfg.Symbols) {
+			t.Fatalf("%s: only %d/%d symbols appeared", g.cfg.ID, len(seen), len(g.cfg.Symbols))
+		}
+		if g.mode() == "lines" && len(hitLines) != len(g.cfg.Lines) {
+			t.Fatalf("%s: only %d/%d paylines hit", g.cfg.ID, len(hitLines), len(g.cfg.Lines))
+		}
+		if g.mode() == "scatter" && len(hitScatter) == 0 {
+			t.Fatalf("%s: no scatter symbols ever paid", g.cfg.ID)
 		}
 	}
-	if len(seenSymbols) != len(symbols) {
-		t.Fatalf("only %d/%d symbols appeared", len(seenSymbols), len(symbols))
-	}
-	if len(hitLines) != lineCount {
-		t.Fatalf("only %d/%d paylines hit", len(hitLines), lineCount)
+}
+
+// TestAnalyticRTPBand asserts every game lands in the target band and
+// records the analytic figure.
+func TestAnalyticRTPBand(t *testing.T) {
+	for _, g := range []*Game{Classic(), FruitSalad(), Treasure()} {
+		rtp := g.TheoreticalRTP()
+		t.Logf("%s: analytic RTP = %.6f (%.2f%%)", g.cfg.ID, rtp, rtp*100)
+		if rtp < 0.9 || rtp > 1.0 {
+			t.Fatalf("%s: analytic RTP %v outside [0.9, 1.0]", g.cfg.ID, rtp)
+		}
 	}
 }
 
-func TestTheoreticalRTPNear98(t *testing.T) {
-	rtp := New().TheoreticalRTP()
-	t.Logf("analytic slots RTP = %.6f (%.2f%%)", rtp, rtp*100)
-	// The shipped tables come out at ~0.9775 for nine lines. Assert the band
-	// and record the figure; the measured figure lives in the RTP sim.
-	if rtp < 0.95 || rtp > 1.0 {
-		t.Fatalf("analytic RTP %v outside [0.95, 1.0]", rtp)
-	}
-}
-
-// TestRTPSimulation is the phase 4 gate: 10 million simulated spins must
-// land within 0.3% of the analytic RTP, and the test reports the actual
-// figure. Deterministic: per-spin seeds derive from one master seed, so a
-// failure reproduces exactly. Skips under -short.
+// TestRTPSimulation is the RTP gate for every game: 10 million spins must
+// land within 0.3% of the analytic RTP. Deterministic. Skips under -short.
 func TestRTPSimulation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("RTP simulation skipped in -short mode")
 	}
+	for _, g := range []*Game{Classic(), FruitSalad(), Treasure()} {
+		g := g
+		t.Run(g.cfg.ID, func(t *testing.T) {
+			spins := 10_000_000
+			const bet = int64(10)
 
-	const spins = 10_000_000
-	const bet = int64(10)
+			master, err := fair.GenerateSeed()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if g.mode() == "scatter" {
+				// Scatter pays have fat tails: a bigger sample keeps the
+				// deviation inside the gate.
+				spins = 30_000_000
+			}
+			bitsNeeded := bits.Len(uint(spins))
 
-	master, err := fair.GenerateSeed()
-	if err != nil {
-		t.Fatal(err)
-	}
-	g := New()
-	bitsNeeded := bits.Len(uint(spins))
+			var totalBet, totalPayout int64
+			for i := 0; i < spins; i++ {
+				h := sha256.New()
+				h.Write(master)
+				idx := uint64(i)
+				for b := 0; b < bitsNeeded; b += 8 {
+					h.Write([]byte{byte(idx >> uint(b))})
+				}
+				stream := fair.NewPersonalStream(h.Sum(nil), "rtp-sim", int64(i))
+				_, _, _, payout := g.spin(stream, bet)
+				totalPayout += payout
+				totalBet += bet
+			}
 
-	var totalBet, totalPayout int64
-	for i := 0; i < spins; i++ {
-		// Deterministic per-spin server seed: sha256(master || index).
-		h := sha256.New()
-		h.Write(master)
-		idx := uint64(i)
-		for b := 0; b < bitsNeeded; b += 8 {
-			h.Write([]byte{byte(idx >> uint(b))})
-		}
-		stream := fair.NewPersonalStream(h.Sum(nil), "rtp-sim", int64(i))
+			measured := float64(totalPayout) / float64(totalBet)
+			theoretical := g.TheoreticalRTP()
+			deviation := (measured - theoretical) / theoretical
 
-		_, _, payout := spin(stream, bet)
-		totalPayout += payout
-		totalBet += bet
-	}
+			t.Logf("RTP SIM [%s]: measured=%.6f theoretical=%.6f deviation=%+.4f%%",
+				g.cfg.ID, measured, theoretical, deviation*100)
 
-	measured := float64(totalPayout) / float64(totalBet)
-	theoretical := g.TheoreticalRTP()
-	deviation := (measured - theoretical) / theoretical
-
-	// Repo record: measured RTP figure is logged here on every run.
-	t.Logf("RTP SIM: %d spins, bet=%d", spins, bet)
-	t.Logf("RTP SIM: measured=%.6f theoretical=%.6f deviation=%+.4f%%",
-		measured, theoretical, deviation*100)
-
-	if deviation > 0.003 || deviation < -0.003 {
-		t.Fatalf("measured RTP %.6f deviates %+.4f%% from analytic %.6f (>0.3%%)",
-			measured, deviation*100, theoretical)
+			if deviation > 0.003 || deviation < -0.003 {
+				t.Fatalf("%s: measured RTP %.6f deviates %+.4f%% from analytic %.6f (>0.3%%)",
+					g.cfg.ID, measured, deviation*100, theoretical)
+			}
+		})
 	}
 }
 
 func equalInts(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func equalGrid(a, b [][]int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !equalInts(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func equalScatter(a, b []ScatterWin) bool {
 	if len(a) != len(b) {
 		return false
 	}

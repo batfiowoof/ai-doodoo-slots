@@ -5,13 +5,22 @@ export type User = components["schemas"]["User"];
 export type Me = components["schemas"]["Me"];
 
 // The Game paytable is game-specific and untyped in the contract; this is
-// the slots shape as emitted by the Go engine.
+// the shape emitted by the Go config engine.
+export interface SlotSymbol {
+  name: string;
+  weight: number;
+  pays: Record<string, number>;
+}
+
 export interface SlotsPaytable {
-  symbols: { name: string; weight: number; pay3: number; pay4: number; pay5: number }[];
+  symbols: SlotSymbol[];
   betSteps: number[];
   reels: number;
   rows: number;
   paylines: number;
+  lines: number[][];
+  icons: string[];
+  mode: "lines" | "scatter";
 }
 
 export interface GameInfo {
@@ -21,9 +30,16 @@ export interface GameInfo {
   paytable?: SlotsPaytable | null;
 }
 
+export interface ScatterWin {
+  symbol: number;
+  count: number;
+  pay: number;
+}
+
 export interface SlotsOutcome {
   grid: number[][];
   winningLines: number[] | null;
+  scatterWins?: ScatterWin[] | null;
 }
 
 export interface BetRow {

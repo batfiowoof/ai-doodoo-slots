@@ -65,7 +65,7 @@ func TestBannedUserCannotBet(t *testing.T) {
 		t.Fatal(err)
 	}
 	registry := game.NewRegistry()
-	registry.Register(slots.New())
+	registry.Register(slots.Classic())
 	ps := play.NewService(pool, registry)
 
 	// Before the ban, betting works.

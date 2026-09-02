@@ -75,6 +75,7 @@ export class PlayError extends Error {
 }
 
 export interface PlayInput {
+  gameId: string;
   betCredits: number;
   clientSeed: string;
 }
@@ -84,8 +85,8 @@ export interface PlayInput {
 export function usePlay() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ betCredits, clientSeed }: PlayInput): Promise<PlayResponse> => {
-      const res = await fetch("/api/v1/games/slots/play", {
+    mutationFn: async ({ gameId, betCredits, clientSeed }: PlayInput): Promise<PlayResponse> => {
+      const res = await fetch(`/api/v1/games/${gameId}/play`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -131,6 +132,29 @@ export function usePlay() {
     onError: () => {
       // Balance may have drifted (e.g. another tab); re-sync.
       void qc.invalidateQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
+export interface DepositResponse {
+  balanceCredits: number;
+  claimed: boolean;
+  amountCredits: number;
+}
+
+/** Tops up credits: +1000, once per UTC hour (server-enforced). */
+export function useDeposit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<DepositResponse> => {
+      const res = await fetch("/api/v1/me/deposit", { method: "POST" });
+      if (!res.ok) throw new Error(`deposit failed: ${res.status}`);
+      return res.json() as Promise<DepositResponse>;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData<Me>(["me"], (old) =>
+        old ? { ...old, balanceCredits: data.balanceCredits } : old,
+      );
     },
   });
 }

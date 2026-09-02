@@ -53,7 +53,9 @@ func WithThemeService(ts *theme.Service) Option {
 // NewServer constructs the HTTP server with its dependency set.
 func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieSecure bool, opts ...Option) *Server {
 	registry := game.NewRegistry()
-	registry.Register(slots.New())
+	registry.Register(slots.Classic())
+	registry.Register(slots.FruitSalad())
+	registry.Register(slots.Treasure())
 	var adminEmails []string
 	if v := os.Getenv("ADMIN_EMAILS"); v != "" {
 		for _, e := range strings.Split(v, ",") {
@@ -107,6 +109,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/admin/users/{id}/adjust", s.handleAdminAdjust)
 	mux.HandleFunc("GET /api/v1/admin/audit", s.handleAdminAudit)
 	mux.HandleFunc("POST /api/v1/me/self-exclude", s.handleSelfExclude)
+	mux.HandleFunc("POST /api/v1/me/deposit", s.handleDeposit)
 	mux.HandleFunc("POST /api/v1/themes", s.handleCreateTheme)
 	mux.HandleFunc("GET /api/v1/themes", s.handleListThemes)
 	return s.withLogging(s.withRecover(mux))

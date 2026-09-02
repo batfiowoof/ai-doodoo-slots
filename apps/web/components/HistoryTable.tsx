@@ -1,7 +1,7 @@
 "use client";
 
 import PixelSymbol from "./PixelSymbol";
-import { useBets, useSession } from "@/lib/api";
+import { useBets, useGames, useSession } from "@/lib/api";
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], {
@@ -11,9 +11,15 @@ function formatTime(iso: string): string {
   });
 }
 
-export default function HistoryTable() {
+export default function HistoryTable({ gameId }: { gameId?: string }) {
   const session = useSession();
+  const games = useGames();
   const bets = useBets();
+
+  const iconMap = new Map<string, string[]>();
+  for (const g of games.data ?? []) {
+    if (g.paytable) iconMap.set(g.id, g.paytable.icons);
+  }
 
   return (
     <section className="border-4 border-stone bg-shadow p-4 shadow-hard">
@@ -44,6 +50,9 @@ export default function HistoryTable() {
                 TIME
               </th>
               <th className="border-b-4 border-slate p-2 text-left font-display font-normal text-haze">
+                GAME
+              </th>
+              <th className="border-b-4 border-slate p-2 text-left font-display font-normal text-haze">
                 RESULT
               </th>
               <th className="border-b-4 border-slate p-2 text-right font-display font-normal text-haze">
@@ -52,55 +61,57 @@ export default function HistoryTable() {
               <th className="border-b-4 border-slate p-2 text-right font-display font-normal text-haze">
                 PAYOUT
               </th>
-              <th className="border-b-4 border-slate p-2 text-right font-display font-normal text-haze">
-                VERIFY
-              </th>
             </tr>
           </thead>
           <tbody>
-            {bets.data.bets.map((bet) => (
-              <tr key={bet.id}>
-                <td className="border-b-4 border-slate p-2 text-haze">
-                  {formatTime(bet.createdAt)}
-                </td>
-                <td className="border-b-4 border-slate p-2">
-                  {bet.outcome?.grid ? (
-                    <span
-                      className="pixelated inline-grid grid-cols-5 gap-[2px] align-middle"
-                      aria-hidden
-                    >
-                      {bet.outcome.grid.flat().map((symbolIndex, i) => (
-                        <PixelSymbol key={i} index={symbolIndex} scale={1} />
-                      ))}
-                    </span>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td className="border-b-4 border-slate p-2 text-right text-bone">
-                  {bet.betCredits}
-                </td>
-                <td
-                  className={`border-b-4 border-slate p-2 text-right ${
-                    bet.payoutCredits > 0 ? "text-mint" : "text-ember"
-                  }`}
-                >
-                  {bet.payoutCredits > 0 ? `+${bet.payoutCredits}` : "0"}
-                </td>
-                <td className="border-b-4 border-slate p-2 text-right">
-                  <a
-                    href={`/verify?client=${encodeURIComponent(bet.clientSeed)}&nonce=${bet.nonce}&bet=${bet.betCredits}`}
-                    className="text-cyan hover:text-bone"
-                    title="Open the verifier with this bet's client seed and nonce — paste the revealed server seed there"
+            {bets.data.bets.map((bet) => {
+              const icons = iconMap.get(bet.gameId);
+              const gridCols = bet.outcome?.grid?.[0]?.length ?? 5;
+              return (
+                <tr key={bet.id}>
+                  <td className="border-b-4 border-slate p-2 text-haze">
+                    {formatTime(bet.createdAt)}
+                  </td>
+                  <td className="border-b-4 border-slate p-2 text-haze">
+                    {bet.gameId}
+                  </td>
+                  <td className="border-b-4 border-slate p-2">
+                    {bet.outcome?.grid ? (
+                      <span
+                        className="pixelated inline-grid gap-[2px] align-middle"
+                        style={{ gridTemplateColumns: `repeat(${gridCols}, 16px)` }}
+                        aria-hidden
+                      >
+                        {bet.outcome.grid.flat().map((symbolIndex, i) => (
+                          <PixelSymbol
+                            key={i}
+                            index={symbolIndex}
+                            icon={icons?.[symbolIndex]}
+                            scale={1}
+                          />
+                        ))}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className="border-b-4 border-slate p-2 text-right text-bone">
+                    {bet.betCredits}
+                  </td>
+                  <td
+                    className={`border-b-4 border-slate p-2 text-right ${
+                      bet.payoutCredits > 0 ? "text-mint" : "text-ember"
+                    }`}
                   >
-                    ▸
-                  </a>
-                </td>
-              </tr>
-            ))}
+                    {bet.payoutCredits > 0 ? `+${bet.payoutCredits}` : "0"}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
+      {gameId && <span className="hidden">{gameId}</span>}
     </section>
   );
 }
