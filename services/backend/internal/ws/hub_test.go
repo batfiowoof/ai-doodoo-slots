@@ -223,3 +223,59 @@ func TestLobbySummaryFlowsToSubscribersOnly(t *testing.T) {
 	}
 	_ = h
 }
+
+// fakeBets records calls and returns canned errors.
+type fakeBets struct{ err error }
+
+func (f fakeBets) PlaceBet(Identity, int64, int64, string) (map[string]any, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return map[string]any{"betCredits": 100}, nil
+}
+func (f fakeBets) CashOut(Identity) (map[string]any, error) { return nil, f.err }
+
+// TestBannedUserBetRejected is the phase-14 gate: every socket message runs
+// the same authorization path as a request -- a banned account cannot reach
+// the bet path even with an open connection.
+func TestBannedUserBetRejected(t *testing.T) {
+	b := bus.NewMemoryBus()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := NewHub(cookieAuth(map[string]Identity{
+		"tok1": {UserID: 9, SessionID: 9, DisplayName: "banned", Role: "player", Status: "banned"},
+	}), testSource{slugs: map[string]bool{"crash-1": true}}, b, clock.Real{}, log)
+	h.SetBetHandler(fakeBets{})
+	srv := httptest.NewServer(http.HandlerFunc(h.ServeHTTP))
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithCancel(context.Background())
+	go h.Run(ctx)
+	t.Cleanup(cancel)
+
+	c := dial(t, srv, "tok1")
+	send(t, c, Message{Type: "join_room", Payload: json.RawMessage(`{"slug":"crash-1"}`)})
+	recv(t, c, 2*time.Second) // room_snapshot
+	send(t, c, Message{Type: "place_bet", Payload: json.RawMessage(`{"credits":100,"autoCashout":2,"idempotencyKey":"k1"}`)})
+	m := recv(t, c, 2*time.Second)
+	if m.Type != "error" {
+		t.Fatalf("type = %q, want error", m.Type)
+	}
+	var p struct {
+		Code string `json:"code"`
+	}
+	if json.Unmarshal(m.Payload, &p) != nil || p.Code != "status_forbids_betting" {
+		t.Fatalf("code = %q", p.Code)
+	}
+}
+
+// TestUnauthenticatedBetMessageRejected: without a session the upgrade is
+// refused outright � no socket, no message path.
+func TestUnauthenticatedBetMessageRejected(t *testing.T) {
+	_, _, srv := newTestHub(t, cookieAuth(map[string]Identity{}))
+	hdr := http.Header{}
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	if _, resp, err := websocket.DefaultDialer.Dial(wsURL, hdr); err == nil {
+		t.Fatal("unauthenticated upgrade accepted")
+	} else if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+}

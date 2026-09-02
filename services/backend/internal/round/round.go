@@ -8,6 +8,7 @@ package round
 import (
 	"encoding/json"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/ai-doodoo-slots/services/backend/internal/fair"
@@ -48,11 +49,14 @@ type Machine struct {
 	result game.RoundResult
 	cfg    Config
 
+	stateMu    sync.RWMutex // guards state; runner writes, bet intake reads
 	state      game.PhaseKind
 	phaseStart time.Time
 	runningDur time.Duration // running-phase length implied by the crash point
 	tickSeq    uint64
 	done       bool
+
+	stakes *bets
 }
 
 // Start resolves the round (from the chain-derived stream) and opens
@@ -74,11 +78,19 @@ func Start(room string, g game.RoundGame, stream *fair.Stream, cfg Config, now t
 		state:      game.PhaseBettingOpen,
 		phaseStart: now,
 		runningDur: running,
+		stakes:     newBets(),
 	}, nil
 }
 
 // State returns the current phase.
-func (m *Machine) State() game.PhaseKind { return m.state }
+func (m *Machine) State() game.PhaseKind {
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
+	return m.state
+}
+
+// StateForStakes exposes the phase to the bet registry under its own lock.
+func (m *Machine) StateForStakes() game.PhaseKind { return m.State() }
 
 // Result returns the resolved round result.
 func (m *Machine) Result() game.RoundResult { return m.result }
@@ -96,9 +108,12 @@ func (m *Machine) MultiplierAt(now time.Time) float64 {
 
 // Step advances the machine to now, emitting events for state transitions
 // and (during running) multiplier ticks. Safe to call at any cadence; the
-// machine never sleeps.
+// machine never sleeps. Step is the single writer of state (runner
+// goroutine); bet intake reads it concurrently.
 func (m *Machine) Step(now time.Time) []Event {
 	var events []Event
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
 	if m.done {
 		return events
 	}

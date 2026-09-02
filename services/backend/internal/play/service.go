@@ -16,6 +16,7 @@ import (
 	"github.com/ai-doodoo-slots/services/backend/internal/game"
 	"github.com/ai-doodoo-slots/services/backend/internal/store"
 	"github.com/ai-doodoo-slots/services/backend/internal/wallet"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -116,10 +117,17 @@ func (s *Service) Play(ctx context.Context, userID int64, gameID string, betCred
 		if err != nil {
 			return Result{}, fmt.Errorf("load replayed bet: %w", err)
 		}
-		seed, err := q.GetServerSeedByID(ctx, bet.ServerSeedID)
+		// Personal-game bets always carry the fairness triple; round-game
+		// bets (crash) leave it null and never replay through this path.
+		if !bet.ServerSeedID.Valid || !bet.ClientSeed.Valid || !bet.Nonce.Valid {
+			return Result{}, fmt.Errorf("replayed bet %d has no personal fairness triple", bet.ID)
+		}
+		seed, err := q.GetServerSeedByID(ctx, bet.ServerSeedID.Int64)
 		if err != nil {
 			return Result{}, fmt.Errorf("load replayed seed: %w", err)
 		}
+		clientSeed := bet.ClientSeed.String
+		nonce := bet.Nonce.Int64
 		return Result{
 			BetID:          bet.ID,
 			GameID:         bet.GameID,
@@ -127,8 +135,8 @@ func (s *Service) Play(ctx context.Context, userID int64, gameID string, betCred
 			BalanceCredits: lockRow.BalanceCredits,
 			Outcome:        bet.Outcome,
 			ServerSeedHash: seed.SeedHash,
-			ClientSeed:     bet.ClientSeed,
-			Nonce:          bet.Nonce,
+			ClientSeed:     clientSeed,
+			Nonce:          nonce,
 			Replay:         true,
 		}, nil
 	}
@@ -184,9 +192,9 @@ func (s *Service) Play(ctx context.Context, userID int64, gameID string, betCred
 		RoundID:       roundID,
 		BetCredits:    betCredits,
 		PayoutCredits: outcome.PayoutCredits,
-		ServerSeedID:  seed.ID,
-		ClientSeed:    effectiveClientSeed,
-		Nonce:         nonce,
+		ServerSeedID:  pgtype.Int8{Int64: seed.ID, Valid: true},
+		ClientSeed:    pgtype.Text{String: effectiveClientSeed, Valid: true},
+		Nonce:         pgtype.Int8{Int64: nonce, Valid: true},
 		Outcome:       outcome.Payload,
 	})
 	if err != nil {

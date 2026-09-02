@@ -48,10 +48,27 @@ type Hub struct {
 	bus  bus.Bus
 	clk  clock.Clock
 	log  *slog.Logger
+	bets BetHandler
+
+	betsMu sync.RWMutex
 
 	mu     sync.RWMutex
 	clients map[*Client]bool
 	rooms  map[string]map[*Client]bool // slug -> subscribed clients
+}
+
+// SetBetHandler attaches the money path (wired after the round runners
+// start). Calls before that answer with an unavailable error.
+func (h *Hub) SetBetHandler(b BetHandler) {
+	h.betsMu.Lock()
+	h.bets = b
+	h.betsMu.Unlock()
+}
+
+func (h *Hub) betHandler() BetHandler {
+	h.betsMu.RLock()
+	defer h.betsMu.RUnlock()
+	return h.bets
 }
 
 func NewHub(auth Authenticator, src RoomSource, b bus.Bus, clk clock.Clock, log *slog.Logger) *Hub {

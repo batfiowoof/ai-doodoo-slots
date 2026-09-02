@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/ai-doodoo-slots/services/backend/internal/bus"
@@ -12,16 +13,23 @@ import (
 	"github.com/ai-doodoo-slots/services/backend/internal/fair"
 	"github.com/ai-doodoo-slots/services/backend/internal/game"
 	"github.com/ai-doodoo-slots/services/backend/internal/store"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// Persister records round transitions. The production implementation writes
-// the rounds table; tests use a no-op.
+// Persister records round transitions and moves money for bets. The
+// production implementation writes Postgres; tests use the no-op.
 type Persister interface {
 	OpenRound(ctx context.Context, roomID int64, gameID string, chainSeedID int64, salt string) (int64, error)
 	Transition(ctx context.Context, roundID int64, state string) error
 	Settle(ctx context.Context, roundID int64, result game.RoundResult) error
+	// PlaceBet debits the stake and inserts the bet row in one transaction,
+	// returning the bet row id and post-debit balance.
+	PlaceBet(ctx context.Context, userID, roundID, credits, autoHundredths int64, idemKey string) (int64, int64, error)
+	// MarkCashout records the receipt-time multiplier on the bet row.
+	MarkCashout(ctx context.Context, roundID, userID, hundredths int64) error
+	// SettleRound pays every winner in one atomic transaction.
+	SettleRound(ctx context.Context, roundID int64, settled []SettledBet) error
 }
 
 // pgPersister persists rounds to Postgres.
@@ -36,7 +44,7 @@ func (p *pgPersister) OpenRound(ctx context.Context, roomID int64, gameID string
 	return store.New(p.pool).CreateRound(ctx, store.CreateRoundParams{
 		RoomID:      pgtype.Int8{Int64: roomID, Valid: true},
 		GameID:      gameID,
-		ChainSeedID: pgtype.Int8{Int64: chainSeedID, Valid: true},
+		ChainSeedID: pgtype.Int8{Int64: chainSeedID, Valid: chainSeedID != 0},
 		Salt:        salt,
 	})
 }
@@ -60,6 +68,14 @@ func (NoopPersister) Transition(context.Context, int64, string) error { return n
 
 func (NoopPersister) Settle(context.Context, int64, game.RoundResult) error { return nil }
 
+func (NoopPersister) PlaceBet(context.Context, int64, int64, int64, int64, string) (int64, int64, error) {
+	return 1, 0, nil
+}
+
+func (NoopPersister) MarkCashout(context.Context, int64, int64, int64) error { return nil }
+
+func (NoopPersister) SettleRound(context.Context, int64, []SettledBet) error { return nil }
+
 // Runner drives one room's round loop forever: it commits the next chain
 // link at round open, runs the state machine, reveals and verifies the seed
 // at settle, persists transitions, and publishes every event on the bus for
@@ -76,6 +92,11 @@ type Runner struct {
 	cfg     Config
 	store   *store.Queries
 	logger  *slog.Logger
+
+	liveMu   sync.RWMutex
+	live     *Machine
+	liveID   int64
+	intakeMu sync.Mutex
 }
 
 func NewRunner(room string, roomID int64, g game.RoundGame, chain *fair.ChainService, persist Persister, b bus.Bus, clk clock.Clock, cfg Config, pool *pgxpool.Pool, logger *slog.Logger) *Runner {
@@ -83,6 +104,31 @@ func NewRunner(room string, roomID int64, g game.RoundGame, chain *fair.ChainSer
 		room: room, roomID: roomID, game: g, chain: chain,
 		persist: persist, bus: b, clk: clk, cfg: cfg,
 		store: store.New(pool), logger: logger,
+	}
+}
+
+// Live returns the current round's id and machine, or (0, nil) between
+// rounds. The machine pointer stays valid for the round's whole life.
+func (r *Runner) Live() (int64, *Machine) {
+	r.liveMu.RLock()
+	defer r.liveMu.RUnlock()
+	return r.liveID, r.live
+}
+
+// LiveState renders the live round for HTTP snapshots (deep links).
+func (r *Runner) LiveState() map[string]any {
+	id, m := r.Live()
+	if m == nil {
+		return nil
+	}
+	mult := 0.0
+	if m.State() == game.PhaseRunning {
+		mult = m.MultiplierAt(r.clk.Now())
+	}
+	return map[string]any{
+		"roundId":    id,
+		"state":      string(m.State()),
+		"multiplier": mult,
 	}
 }
 
@@ -126,6 +172,14 @@ func (r *Runner) runRound(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	r.liveMu.Lock()
+	r.live, r.liveID = m, roundID
+	r.liveMu.Unlock()
+	defer func() {
+		r.liveMu.Lock()
+		r.live, r.liveID = nil, 0
+		r.liveMu.Unlock()
+	}()
 
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
@@ -153,6 +207,20 @@ func (r *Runner) runRound(ctx context.Context) error {
 					if serr := r.persist.Settle(ctx, roundID, m.Result()); serr != nil {
 						return serr
 					}
+					// Atomic batch settlement: every payout in one
+					// transaction, wallets locked in sorted order.
+					settled := make([]SettledBet, 0)
+					for _, s := range m.Settlements() {
+						settled = append(settled, SettledBet{
+							BetID: s.BetID, UserID: s.UserID,
+							PayoutCredits:        s.PayoutCredits,
+							MultiplierHundredths: s.MultiplierHundredths,
+						})
+					}
+					if err := r.persist.SettleRound(ctx, roundID, settled); err != nil {
+						r.logger.Error("settle round", "room", r.room, "round", roundID, "err", err)
+						return err
+					}
 				}
 				r.publish(ev)
 			}
@@ -166,3 +234,4 @@ func (r *Runner) runRound(ctx context.Context) error {
 func (r *Runner) publish(ev Event) {
 	r.bus.Publish(bus.Event{Topic: "rooms", Room: ev.Room, Type: ev.Type, Payload: ev.Payload})
 }
+

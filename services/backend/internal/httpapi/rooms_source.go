@@ -35,13 +35,19 @@ func (r *roomsSource) Snapshot(slug string) (json.RawMessage, bool) {
 		return nil, false
 	}
 	counts, _ := r.s.presence()
+	round := any(nil)
+	if r.s.roomLive != nil {
+		if live, ok := r.s.roomLive(slug); ok {
+			round = live
+		}
+	}
 	payload, err := json.Marshal(map[string]any{
 		"room": roomDTO{
 			ID: room.ID, Slug: room.Slug, Name: room.Name, GameID: room.GameID,
 			MinBet: room.MinBet, MaxBet: room.MaxBet, Capacity: int(room.Capacity),
 			PlayerCount: counts[slug],
 		},
-		"round": nil,
+		"round": round,
 	})
 	if err != nil {
 		return nil, false

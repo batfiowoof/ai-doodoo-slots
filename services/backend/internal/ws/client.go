@@ -93,13 +93,16 @@ func (c *Client) writePump() {
 	}
 }
 
-// inbound message types. place_bet/cash_out arrive with the crash engine
-// (phase 14); the guard rejects them explicitly until then.
+// inbound message types. Every money-moving type is re-authorized per
+// message: identity status (banned/self-excluded), phase, and idempotency
+// are all checked server-side by the BetHandler.
 var inboundTypes = map[string]bool{
 	"subscribe_lobby":   true,
 	"unsubscribe_lobby": true,
 	"join_room":         true,
 	"leave_room":        true,
+	"place_bet":         true,
+	"cash_out":          true,
 }
 
 func (c *Client) readPump() {
@@ -226,5 +229,76 @@ func (c *Client) handle(m Message) {
 			}
 		}
 		c.hub.mu.Unlock()
+
+	case "place_bet":
+		c.handleBet("place_bet", m.Payload)
+
+	case "cash_out":
+		c.handleBet("cash_out", m.Payload)
 	}
+}
+
+// handleBet routes a money message through the BetHandler — the same
+// authorization path as an HTTP request — and answers with bet_ack or
+// error. The response payload is authoritative state from the server.
+func (c *Client) handleBet(kind string, payload json.RawMessage) {
+	h := c.hub.betHandler()
+	if h == nil {
+		c.sendJSON(Message{Type: "error", Payload: json.RawMessage(`{"code":"bets_unavailable"}`)})
+		return
+	}
+	// Per-message authorization: a connection authenticated before a ban
+	// must not bet.
+	if c.id.Status != "active" {
+		c.sendJSON(Message{Type: "error", Payload: json.RawMessage(`{"code":"status_forbids_betting"}`)})
+		return
+	}
+	// The message must target the room this connection joined.
+	room := c.joinedRoom()
+	if room == "" {
+		c.sendJSON(Message{Type: "error", Payload: json.RawMessage(`{"code":"not_in_room"}`)})
+		return
+	}
+
+	var resp map[string]any
+	var err error
+	switch kind {
+	case "place_bet":
+		var p struct {
+			Credits       int64   `json:"credits"`
+			AutoCashout   float64 `json:"autoCashout"`
+			IdempotencyKey string `json:"idempotencyKey"`
+		}
+		if json.Unmarshal(payload, &p) != nil {
+			c.sendJSON(Message{Type: "error", Payload: json.RawMessage(`{"code":"bad_request"}`)})
+			return
+		}
+		hundredths := int64(p.AutoCashout * 100) // server rounds the target
+		resp, err = h.PlaceBet(c.id, p.Credits, hundredths, p.IdempotencyKey)
+	case "cash_out":
+		resp, err = h.CashOut(c.id)
+	}
+	if err != nil {
+		code := "bet_rejected"
+		if ce, ok := err.(interface{ Code() string }); ok {
+			code = ce.Code()
+		}
+		payload, _ := json.Marshal(map[string]any{"code": code, "message": err.Error(), "room": room})
+		c.sendJSON(Message{Type: "error", Payload: payload})
+		return
+	}
+	raw, _ := json.Marshal(resp)
+	c.sendJSON(Message{Type: "bet_ack", Payload: raw})
+}
+
+// joinedRoom returns the connection's current (non-lobby) room, if any.
+func (c *Client) joinedRoom() string {
+	c.hub.mu.RLock()
+	defer c.hub.mu.RUnlock()
+	for slug := range c.rooms {
+		if slug != LobbyTopicName {
+			return slug
+		}
+	}
+	return ""
 }

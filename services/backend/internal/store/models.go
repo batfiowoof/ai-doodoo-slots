@@ -21,17 +21,20 @@ type AuditLog struct {
 }
 
 type Bet struct {
-	ID            int64
-	UserID        int64
-	GameID        string
-	RoundID       int64
-	BetCredits    int64
-	PayoutCredits int64
-	ServerSeedID  int64
-	ClientSeed    string
-	Nonce         int64
-	Outcome       []byte
-	CreatedAt     time.Time
+	ID                    int64
+	UserID                int64
+	GameID                string
+	RoundID               int64
+	BetCredits            int64
+	PayoutCredits         int64
+	ServerSeedID          pgtype.Int8
+	ClientSeed            pgtype.Text
+	Nonce                 pgtype.Int8
+	Outcome               []byte
+	CreatedAt             time.Time
+	Action                string
+	AutoCashoutHundredths int64
+	CashoutHundredths     int64
 }
 
 type ChainSeed struct {

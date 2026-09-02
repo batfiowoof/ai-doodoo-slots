@@ -38,6 +38,14 @@ func (i *Identity) IsStaff() bool {
 // by the httpapi layer so the socket shares the exact auth path of HTTP.
 type Authenticator func(r *http.Request) (*Identity, bool)
 
+// BetHandler is the authorized money path for bet messages. Implementations
+// re-check status, phase, and idempotency server-side; the socket layer
+// never trusts message content beyond shape.
+type BetHandler interface {
+	PlaceBet(id Identity, credits, autoHundredths int64, idemKey string) (map[string]any, error)
+	CashOut(id Identity) (map[string]any, error)
+}
+
 // LobbyTopic and session/user/room topics are bus topics the hub listens to.
 const (
 	TopicLobby   = "lobby"

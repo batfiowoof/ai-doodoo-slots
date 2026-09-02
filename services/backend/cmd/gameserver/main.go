@@ -71,7 +71,7 @@ func main() {
 		logger.Error("list rooms", "err", err)
 		os.Exit(1)
 	}
-	started := 0
+	runners := make(map[string]*round.Runner, len(rooms))
 	for _, room := range rooms {
 		g, ok := roundRegistry[room.GameID]
 		if !ok {
@@ -88,10 +88,21 @@ func main() {
 				RunningFor:  crash.RunningFor,
 			}, pool, logger)
 		go runner.Run(ctx)
-		started++
+		runners[room.Slug] = runner
+		// The intake is the authorized money path for socket bet messages;
+		// the hub relays place_bet/cash_out through it.
+		intake := round.NewIntake(runner, persist, clock.Real{}, logger)
+		api.Hub().SetBetHandler(intake)
 		logger.Info("round runner started", "room", room.Slug, "game", room.GameID)
 	}
-	logger.Info("round runners running", "rooms", started)
+	api.SetRoomLive(func(slug string) (map[string]any, bool) {
+		r, ok := runners[slug]
+		if !ok || r == nil {
+			return nil, false
+		}
+		state := r.LiveState()
+		return state, state != nil
+	})
 
 	srv := &http.Server{
 		Addr:              addr,

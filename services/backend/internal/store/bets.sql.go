@@ -50,9 +50,23 @@ FROM bets
 WHERE id = $1
 `
 
-func (q *Queries) GetBetByID(ctx context.Context, id int64) (Bet, error) {
+type GetBetByIDRow struct {
+	ID            int64
+	UserID        int64
+	GameID        string
+	RoundID       int64
+	BetCredits    int64
+	PayoutCredits int64
+	ServerSeedID  pgtype.Int8
+	ClientSeed    pgtype.Text
+	Nonce         pgtype.Int8
+	Outcome       []byte
+	CreatedAt     time.Time
+}
+
+func (q *Queries) GetBetByID(ctx context.Context, id int64) (GetBetByIDRow, error) {
 	row := q.db.QueryRow(ctx, getBetByID, id)
-	var i Bet
+	var i GetBetByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -82,9 +96,9 @@ type InsertBetParams struct {
 	RoundID       int64
 	BetCredits    int64
 	PayoutCredits int64
-	ServerSeedID  int64
-	ClientSeed    string
-	Nonce         int64
+	ServerSeedID  pgtype.Int8
+	ClientSeed    pgtype.Text
+	Nonce         pgtype.Int8
 	Outcome       []byte
 }
 
@@ -132,8 +146,8 @@ type ListBetsByUserRow struct {
 	RoundID       int64
 	BetCredits    int64
 	PayoutCredits int64
-	ClientSeed    string
-	Nonce         int64
+	ClientSeed    pgtype.Text
+	Nonce         pgtype.Int8
 	Outcome       []byte
 	CreatedAt     time.Time
 }

@@ -42,6 +42,8 @@ type Server struct {
 
 	bus bus.Bus
 	hub *ws.Hub // set by WithHub; enables /api/v1/ws and lobby presence
+
+	roomLive func(slug string) (map[string]any, bool)
 }
 
 // Option customizes the server at construction.
@@ -71,8 +73,20 @@ func WithHub() Option {
 	}
 }
 
+// WithRoomLive attaches a provider for a room's live round state, used by
+// the room detail endpoint so deep links show the current round.
+func WithRoomLive(f func(slug string) (map[string]any, bool)) Option {
+	return func(s *Server) { s.roomLive = f }
+}
+
 // Hub exposes the hub for callers that need to drive it (gameserver).
 func (s *Server) Hub() *ws.Hub { return s.hub }
+
+// SetRoomLive attaches the live-round provider after construction (used by
+// the gameserver, whose runners start after the server is built).
+func (s *Server) SetRoomLive(f func(slug string) (map[string]any, bool)) {
+	s.roomLive = f
+}
 
 // Bus exposes the event bus.
 func (s *Server) Bus() bus.Bus { return s.bus }
