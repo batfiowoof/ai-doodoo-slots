@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Backdrop from "@/components/Backdrop";
 import VerifyClient from "@/components/VerifyClient";
 
 export const metadata: Metadata = {
@@ -10,23 +11,67 @@ export const metadata: Metadata = {
 
 export default function VerifyPage() {
   return (
-    <div className="mx-auto max-w-[1128px] px-4 pt-6 pb-12">
-      <header className="mb-6 flex items-center justify-between gap-4">
-        <h1 className="font-display text-2xl text-magenta">VERIFY A SPIN</h1>
-        <Link href="/" className="font-display text-base text-cyan">
-          ◂ BACK TO THE FLOOR
-        </Link>
-      </header>
+    <div style={{ position: "fixed", inset: 0, overflow: "hidden", background: "#06040d" }}>
+      <Backdrop />
+      <div
+        style={{
+          position: "relative",
+          zIndex: 5,
+          height: "100%",
+          overflow: "auto",
+          maxWidth: 940,
+          margin: "0 auto",
+          padding: "18px 26px 40px",
+          boxSizing: "border-box",
+        }}
+      >
+        <header
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 16,
+            padding: "0 0 18px",
+          }}
+        >
+          <span
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 22,
+              letterSpacing: 3,
+              color: "#ff2d95",
+              textShadow: "0 0 10px rgba(255,45,149,.9)",
+            }}
+          >
+            VERIFY A SPIN
+          </span>
+          <Link
+            href="/"
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 11,
+              letterSpacing: 1,
+              padding: "9px 12px",
+              whiteSpace: "nowrap",
+              border: "1px solid #1c5f6b",
+              background: "#0b2a33",
+              color: "#22e8ff",
+            }}
+          >
+            ◂ BACK TO THE FLOOR
+          </Link>
+        </header>
 
-      <div className="border-4 border-stone bg-shadow p-4 shadow-hard">
-        <p className="m-0 mb-4 text-base text-haze">
-          This page recomputes the outcome entirely in your browser with
-          WebCrypto. It never calls the API — that independence is what makes
-          the check meaningful. Enter the revealed server seed (shown when you
-          rotate your seed pair), the client seed, and the nonce from your bet
-          history.
-        </p>
-        <VerifyClient />
+        <div
+          style={{
+            background: "#0f0720",
+            border: "2px solid #22e8ff",
+            boxShadow: "0 0 60px rgba(34,232,255,.35)",
+            padding: 18,
+          }}
+        >
+          <VerifyClient />
+        </div>
       </div>
     </div>
   );

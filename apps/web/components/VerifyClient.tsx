@@ -7,6 +7,17 @@ import { deriveGrid, type VerifyResult } from "@/lib/verify";
 import { VERIFY_PAYS3, VERIFY_PAYS4, VERIFY_PAYS5, VERIFY_WEIGHTS } from "@/lib/verify";
 import { SYMBOL_NAMES } from "@/lib/symbols";
 
+const FIELD: React.CSSProperties = {
+  width: "100%",
+  boxSizing: "border-box",
+  background: "#06040d",
+  border: "2px solid #35205c",
+  color: "#ece6ff",
+  fontFamily: "var(--font-body)",
+  fontSize: 22,
+  padding: "10px 12px",
+};
+
 function Verifier() {
   const params = useSearchParams();
   const [serverSeed, setServerSeed] = useState(params.get("server") ?? "");
@@ -38,107 +49,189 @@ function Verifier() {
 
   const payout = result ? result.payoutMultiplier * Number.parseInt(bet, 10) : 0;
 
-  const field =
-    "w-full border-4 border-slate bg-ink p-2 font-body text-xl text-bone focus:border-cyan focus:outline-none";
-
   return (
-    <div className="flex flex-col gap-6 lg:flex-row">
-      <div className="flex flex-col gap-4 lg:w-[480px]">
-        <label className="flex flex-col gap-2">
-          <span className="font-display text-base text-haze">
+    <div>
+      <p style={{ margin: "0 0 16px", fontSize: 20, color: "#8878b8" }}>
+        Every outcome derives from HMAC-SHA256(serverSeed, clientSeed + &quot;:&quot; +
+        nonce). This recomputes in your browser with WebCrypto and never calls
+        the API — that independence is what makes the check meaningful.
+      </p>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 560 }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 10,
+              letterSpacing: 2,
+              color: "#8878b8",
+            }}
+          >
             SERVER SEED (HEX, REVEALED ON ROTATION)
           </span>
           <input
-            className={`${field} break-all`}
+            style={FIELD}
             value={serverSeed}
             onChange={(e) => setServerSeed(e.target.value)}
             spellCheck={false}
             placeholder="64 hex characters"
           />
         </label>
-        <label className="flex flex-col gap-2">
-          <span className="font-display text-base text-haze">CLIENT SEED</span>
+        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 10,
+              letterSpacing: 2,
+              color: "#8878b8",
+            }}
+          >
+            CLIENT SEED
+          </span>
           <input
-            className={field}
+            style={FIELD}
             value={clientSeed}
             onChange={(e) => setClientSeed(e.target.value)}
             spellCheck={false}
           />
         </label>
-        <div className="flex gap-4">
-          <label className="flex flex-1 flex-col gap-2">
-            <span className="font-display text-base text-haze">NONCE</span>
+        <div style={{ display: "flex", gap: 14 }}>
+          <label style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+            <span
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: 10,
+                letterSpacing: 2,
+                color: "#8878b8",
+              }}
+            >
+              NONCE
+            </span>
             <input
-              className={field}
+              style={FIELD}
               value={nonce}
               onChange={(e) => setNonce(e.target.value)}
               inputMode="numeric"
             />
           </label>
-          <label className="flex flex-1 flex-col gap-2">
-            <span className="font-display text-base text-haze">BET</span>
-            <select
-              className={field}
+          <label style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+            <span
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: 10,
+                letterSpacing: 2,
+                color: "#8878b8",
+              }}
+            >
+              BET
+            </span>
+            <input
+              style={FIELD}
               value={bet}
               onChange={(e) => setBet(e.target.value)}
-            >
-              {[5, 10, 25, 50, 100].map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+              inputMode="numeric"
+            />
           </label>
         </div>
         <button
           type="button"
           onClick={compute}
           disabled={busy || serverSeed.length === 0}
-          className="border-4 border-plum bg-cyan p-2 font-display text-base text-ink hover:bg-bone disabled:cursor-not-allowed disabled:border-slate disabled:bg-stone disabled:text-haze"
+          style={{
+            border: "2px solid #22e8ff",
+            background: "#0b2a33",
+            color: "#22e8ff",
+            fontFamily: "var(--font-display)",
+            fontSize: 13,
+            letterSpacing: 2,
+            padding: 12,
+            cursor: busy ? "wait" : "pointer",
+            opacity: busy ? 0.6 : 1,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "#22e8ff";
+            e.currentTarget.style.color = "#06040d";
+            e.currentTarget.style.boxShadow = "0 0 22px rgba(34,232,255,.6)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "#0b2a33";
+            e.currentTarget.style.color = "#22e8ff";
+            e.currentTarget.style.boxShadow = "none";
+          }}
         >
-          {busy ? "COMPUTINGâ€¦" : "RECOMPUTE OUTCOME"}
+          {busy ? "COMPUTING…" : "RECOMPUTE OUTCOME"}
         </button>
         {error && (
-          <p role="alert" className="m-0 border-4 border-ember p-2 text-ember">
+          <p role="alert" style={{ margin: 0, border: "2px solid #ff8a1f", padding: 10, fontSize: 20, color: "#ff8a1f" }}>
             {error}
           </p>
         )}
       </div>
 
       {result && (
-        <div className="flex-1 border-4 border-slate bg-ink p-4">
-          <h2 className="m-0 mb-4 font-display text-base text-cyan">
+        <div
+          style={{
+            marginTop: 18,
+            borderTop: "1px solid #1b1030",
+            paddingTop: 18,
+          }}
+        >
+          <h2
+            style={{
+              margin: "0 0 12px",
+              fontFamily: "var(--font-display)",
+              fontSize: 13,
+              letterSpacing: 2,
+              color: "#22e8ff",
+            }}
+          >
             RECOMPUTED OUTCOME
           </h2>
-          <div className="inline-grid grid-cols-3 gap-2 bg-slate p-2">
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", maxWidth: 5 * 48 + 16 }}>
             {result.grid.flat().map((symbolIndex, i) => (
               <div
                 key={i}
-                className="pixelated flex h-16 w-16 items-center justify-center border-4 border-slate bg-ink"
+                style={{
+                  width: 48,
+                  height: 48,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "#06040d",
+                  boxShadow: "inset 0 0 0 1px #241640",
+                }}
               >
-                <PixelSymbol index={symbolIndex} scale={8} />
+                <PixelSymbol index={symbolIndex} scale={1} />
               </div>
             ))}
           </div>
-          <p className="mt-4 text-xl">
+          <p style={{ marginTop: 12, fontSize: 24 }}>
             {result.winningLines.length > 0 ? (
-              <span className="text-mint">
-                WIN Â· {result.winningLines.length} line
-                {result.winningLines.length > 1 ? "s" : ""} Â·{" "}
-                {result.payoutMultiplier}Ã— bet = {payout} credits
+              <span style={{ color: "#22e8ff" }}>
+                WIN · {result.winningLines.length}{" "}
+                {result.winningLines.length === 1 ? "line" : "lines"} ·{" "}
+                {result.payoutMultiplier}× bet = {payout} credits
               </span>
             ) : (
-              <span className="text-haze">NO WINNING LINES</span>
+              <span style={{ color: "#5c4f80" }}>NO WINNING LINES</span>
             )}
           </p>
-          <p className="mt-2 text-base text-haze">
-            grid {JSON.stringify(result.grid)} Â· lines{" "}
-            [{result.winningLines.join(", ")}]
+          <p style={{ marginTop: 8, fontSize: 20, color: "#8878b8" }}>
+            grid {JSON.stringify(result.grid)} · lines [{result.winningLines.join(", ")}]
           </p>
-          <p className="mt-4 border-t-4 border-slate pt-4 text-base text-haze">
-            Weights [{VERIFY_WEIGHTS.join(", ")}] Â· pays [
-            {VERIFY_PAYS3.join(" / ")} · {VERIFY_PAYS4.join(" / ")} · {VERIFY_PAYS5.join(" / ")}] · symbols {SYMBOL_NAMES.join(", ")}
-            first draws u32 [{result.u32s.slice(0, 4).join(", ")}â€¦]
+          <p
+            style={{
+              marginTop: 12,
+              borderTop: "1px solid #1b1030",
+              paddingTop: 12,
+              fontSize: 20,
+              color: "#5c4f80",
+            }}
+          >
+            Weights [{VERIFY_WEIGHTS.join(", ")}] · pays [
+            {VERIFY_PAYS3.join(" / ")} · {VERIFY_PAYS4.join(" / ")} ·{" "}
+            {VERIFY_PAYS5.join(" / ")}] · symbols {SYMBOL_NAMES.join(", ")} ·
+            first draws u32 [{result.u32s.slice(0, 4).join(", ")}…]
           </p>
         </div>
       )}

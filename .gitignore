@@ -16,3 +16,6 @@ out/
 *.log
 dist/
 coverage/
+
+# design handoff bundle (local only)
+Retro casino slots redesign/
