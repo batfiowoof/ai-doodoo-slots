@@ -168,9 +168,7 @@ func (c *Client) handle(m Message) {
 		c.hub.mu.Lock()
 		c.rooms[LobbyTopicName] = true
 		c.hub.mu.Unlock()
-		rooms, players := c.hub.presence()
-		payload, _ := json.Marshal(map[string]any{"rooms": rooms, "connectedPlayers": players})
-		c.sendJSON(Message{Type: "lobby_summary", Payload: payload})
+		c.hub.broadcastLobbySummary()
 
 	case "unsubscribe_lobby":
 		c.hub.mu.Lock()

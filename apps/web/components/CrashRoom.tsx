@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSession } from "@/lib/api";
+import type { Me } from "@/lib/types";
 import { sound } from "@/lib/sound";
 
 // The crash room: curve, bet panel, players, history. The server decides
@@ -45,7 +46,7 @@ export default function CrashRoom({ slug }: { slug: string }) {
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
   const [multiplier, setMultiplier] = useState(1);
   const [state, setState] = useState<RoundState>("betting_open");
-  const [roundId, setRoundId] = useState(0);
+  const [, setRoundId] = useState(0);
   const [stakes, setStakes] = useState<Stake[]>([]);
   const [history, setHistory] = useState<number[]>([]);
   const [crashed, setCrashed] = useState(false);
@@ -58,6 +59,25 @@ export default function CrashRoom({ slug }: { slug: string }) {
   const wsRef = useRef<WebSocket | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const userId = session.data?.user.id;
+
+  // Server → client envelope: one loose shape covering every message type.
+  interface ServerPayload {
+    state?: string;
+    multiplier?: number;
+    seq?: number;
+    crashMultiplier?: number;
+    recentCrashes?: number[];
+    stakes?: Stake[];
+    payouts?: { userId: number; payoutCredits: number }[];
+    userId?: number;
+    displayName?: string;
+    credits?: number;
+    balanceCredits?: number;
+    betCredits?: number;
+    payoutCredits?: number;
+    code?: string;
+    slug?: string;
+  }
 
   const showNote = useCallback((text: string) => {
     setNote(text);
@@ -84,7 +104,9 @@ export default function CrashRoom({ slug }: { slug: string }) {
         if (!closed) retry = window.setTimeout(connect, 1000);
       };
       ws.onmessage = (ev) => {
-        const msg = JSON.parse(ev.data) as { type: string; payload?: any };
+        const msg = JSON.parse(ev.data) as { type: string; payload?: ServerPayload };
+        if (!msg.payload) return;
+        const p = msg.payload;
         switch (msg.type) {
           case "room_snapshot": {
             const snap = msg.payload as RoomSnapshot;
@@ -100,7 +122,7 @@ export default function CrashRoom({ slug }: { slug: string }) {
             break;
           }
           case "round_state": {
-            const next = msg.payload.state as RoundState;
+            const next = p.state as RoundState;
             setState(next);
             if (next === "betting_open") {
               setCrashed(false);
@@ -111,16 +133,16 @@ export default function CrashRoom({ slug }: { slug: string }) {
             break;
           }
           case "round_tick":
-            setMultiplier(msg.payload.multiplier);
+            setMultiplier(p.multiplier ?? 1);
             break;
           case "round_result":
-            setMultiplier(msg.payload.crashMultiplier);
+            setMultiplier(p.crashMultiplier ?? 1);
             setCrashed(true);
             sound.error();
             void qc.invalidateQueries({ queryKey: ["me"] });
             break;
           case "round_settlements": {
-            const mine = (msg.payload.payouts ?? []).find(
+            const mine = (p.payouts ?? []).find(
               (p: { userId: number }) => p.userId === userId,
             );
             if (mine) setLastPayout(mine.payoutCredits);
@@ -128,41 +150,48 @@ export default function CrashRoom({ slug }: { slug: string }) {
             break;
           }
           case "bet_placed":
-            setStakes((prev) => [
-              ...prev.filter((s) => s.userId !== msg.payload.userId),
-              {
-                userId: msg.payload.userId,
-                displayName: msg.payload.displayName,
-                credits: msg.payload.credits,
-              },
-            ]);
+            if (p.userId === undefined) break;
+            {
+              const uid = p.userId;
+              setStakes((prev) => [
+                ...prev.filter((s) => s.userId !== uid),
+                {
+                  userId: uid,
+                  displayName: p.displayName,
+                  credits: p.credits ?? 0,
+                },
+              ]);
+            }
             break;
           case "bet_cashout":
             setStakes((prev) =>
               prev.map((s) =>
-                s.userId === msg.payload.userId
-                  ? { ...s, cashedAt: msg.payload.multiplier }
+                s.userId === p.userId
+                  ? { ...s, cashedAt: p.multiplier }
                   : s,
               ),
             );
             break;
-          case "bet_ack":
-            if (msg.payload.balanceCredits !== undefined) {
-              qc.setQueryData(["me"], (old: any) =>
-                old ? { ...old, balanceCredits: msg.payload.balanceCredits } : old,
+          case "bet_ack": {
+            const p = msg.payload;
+            const bal = p.balanceCredits;
+            if (bal !== undefined) {
+              qc.setQueryData<Me>(["me"], (old) =>
+                old ? { ...old, balanceCredits: bal } : old,
               );
             }
-            if (msg.payload.betCredits !== undefined) {
-              setMyBet({ credits: msg.payload.betCredits, cashed: false });
+            if (p.betCredits !== undefined) {
+              setMyBet({ credits: p.betCredits, cashed: false });
               sound.bell();
             }
-            if (msg.payload.payoutCredits !== undefined) {
+            if (p.payoutCredits !== undefined) {
               setMyBet((prev) => (prev ? { ...prev, cashed: true } : prev));
               sound.bell();
             }
             break;
+          }
           case "error":
-            showNote((msg.payload?.code ?? "error").toUpperCase().replaceAll("_", " "));
+            showNote((p?.code ?? "error").toUpperCase().replaceAll("_", " "));
             sound.error();
             break;
         }

@@ -52,6 +52,8 @@ type Hub struct {
 	log  *slog.Logger
 	bets BetHandler
 
+	roomInfo func() map[string]map[string]any
+
 	allowedOrigins map[string]bool
 
 	betsMu sync.RWMutex
@@ -66,6 +68,16 @@ type Hub struct {
 func (h *Hub) SetBetHandler(b BetHandler) {
 	h.betsMu.Lock()
 	h.bets = b
+	h.betsMu.Unlock()
+}
+
+// SetRoomInfo attaches a live-round catalog used to enrich lobby summaries:
+// it returns info for every active room (not just occupied ones), so an idle
+// lobby still shows each cabinet. The lobby never receives raw round ticks —
+// only this coarse, 1Hz digest.
+func (h *Hub) SetRoomInfo(f func() map[string]map[string]any) {
+	h.betsMu.Lock()
+	h.roomInfo = f
 	h.betsMu.Unlock()
 }
 
@@ -258,8 +270,26 @@ func (h *Hub) Presence() (map[string]int, int) { return h.presence() }
 
 func (h *Hub) broadcastLobbySummary() {
 	rooms, players := h.presence()
+	h.betsMu.RLock()
+	catalog := h.roomInfo
+	h.betsMu.RUnlock()
+
+	detail := map[string]any{}
+	if catalog != nil {
+		for slug, live := range catalog() {
+			entry := map[string]any{"players": rooms[slug]}
+			entry["state"] = live["state"]
+			entry["multiplier"] = live["multiplier"]
+			entry["recentCrashes"] = live["recentCrashes"]
+			detail[slug] = entry
+		}
+	} else {
+		for slug, count := range rooms {
+			detail[slug] = map[string]any{"players": count}
+		}
+	}
 	payload, err := json.Marshal(map[string]any{
-		"rooms":        rooms,
+		"rooms":            detail,
 		"connectedPlayers": players,
 	})
 	if err != nil {

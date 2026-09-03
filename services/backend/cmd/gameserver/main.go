@@ -89,12 +89,21 @@ func main() {
 			}, pool, logger)
 		go runner.Run(ctx)
 		runners[room.Slug] = runner
+		runner.SetLimits(room.MinBet, room.MaxBet)
 		// The intake is the authorized money path for socket bet messages;
 		// the hub relays place_bet/cash_out through it.
 		intake := round.NewIntake(runner, persist, clock.Real{}, api.Bus(), logger)
 		api.Hub().SetBetHandler(intake)
 		logger.Info("round runner started", "room", room.Slug, "game", room.GameID)
 	}
+	// Lobby summaries carry coarse per-room state — never round ticks.
+	api.Hub().SetRoomInfo(func() map[string]map[string]any {
+		out := make(map[string]map[string]any, len(runners))
+		for slug, r := range runners {
+			out[slug] = r.LiveState()
+		}
+		return out
+	})
 	api.SetRoomLive(func(slug string) (map[string]any, bool) {
 		r, ok := runners[slug]
 		if !ok || r == nil {

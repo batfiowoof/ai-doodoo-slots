@@ -36,8 +36,8 @@ func TestSettleTwoHundredPlayersAtomically(t *testing.T) {
 		// Real room + round rows: bets reference rounds(rooms(id)).
 		var roomID int64
 		if err := pool.QueryRow(ctx,
-			`INSERT INTO rooms (game_id, slug, name, min_bet, max_bet, capacity)
-			 VALUES ('crash', $1, 'gate room', 1, 1000, 500) RETURNING id`,
+			`INSERT INTO rooms (game_id, slug, name, min_bet, max_bet, capacity, is_active)
+			 VALUES ('crash', $1, 'gate room', 1, 1000, 500, false) RETURNING id`,
 			fmt.Sprintf("gate-%d-%d", run, (clock.Real{}).Now().UnixNano())).Scan(&roomID); err != nil {
 			t.Fatalf("room: %v", err)
 		}

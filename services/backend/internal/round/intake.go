@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strconv"
 
@@ -55,6 +56,10 @@ func (i *Intake) PlaceBet(id ws.Identity, credits, autoHundredths int64, idemKey
 	}
 	if credits <= 0 || credits > 1_000_000 || idemKey == "" {
 		return nil, codedBet(ErrInvalidAmount)
+	}
+	// Room stake tier: enforced server-side from the rooms table.
+	if min, max := i.runner.Limits(); credits < min || credits > max {
+		return nil, coded("out_of_tier", fmt.Errorf("bet must be between %d and %d", min, max))
 	}
 	roundID, m := i.runner.Live()
 	if m == nil || roundID == 0 {

@@ -7,6 +7,7 @@ import PixelSymbol from "@/components/PixelSymbol";
 import { NavLink } from "@/components/NavButton";
 import { sound } from "@/lib/sound";
 import { useDeposit, useGames, useSession } from "@/lib/api";
+import { useLobby } from "@/lib/useLobby";
 import type { GameInfo } from "@/lib/types";
 
 const TRACK_W = 1220;
@@ -16,6 +17,7 @@ export default function GameMenu() {
   const session = useSession();
   const games = useGames();
   const deposit = useDeposit();
+  const lobby = useLobby();
   const [depositNote, setDepositNote] = useState<string | null>(null);
   const [menuScale, setMenuScale] = useState(1);
   const [muted, setMuted] = useState(false);
@@ -258,6 +260,37 @@ export default function GameMenu() {
                 color: "#8878b8",
               }}
             >
+              LIVE CRASH ROOMS
+            </div>
+          </div>
+
+          {lobby.rooms.length > 0 && (
+            <div
+              style={{
+                width: TRACK_W,
+                display: "flex",
+                justifyContent: "center",
+                flexWrap: "wrap",
+                gap: 22,
+                transform: `scale(${menuScale})`,
+                transformOrigin: "center center",
+              }}
+            >
+              {lobby.rooms.map((r) => (
+                <CrashCabinet key={r.slug} room={r} />
+              ))}
+            </div>
+          )}
+
+          <div style={{ textAlign: "center" }}>
+            <div
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: 15,
+                letterSpacing: 6,
+                color: "#8878b8",
+              }}
+            >
               PICK YOUR MACHINE
             </div>
           </div>
@@ -297,6 +330,93 @@ export default function GameMenu() {
       </div>
     </div>
   );
+}
+
+function CrashCabinet({ room }: { room: LobbyRoomInfo }) {
+  const live = room.state === "running";
+  const open = room.state === "betting_open";
+  return (
+    <Link
+      href={`/rooms/${room.slug}`}
+      onClick={() => {
+        sound.unlock();
+        sound.click();
+      }}
+      style={{
+        width: 376,
+        boxSizing: "border-box",
+        flex: "0 0 376px",
+        padding: 20,
+        background: "linear-gradient(#0d0619,#170c2b)",
+        border: `2px solid ${live ? "#22e8ff" : "#35205c"}`,
+        boxShadow: live ? "0 0 34px rgba(34,232,255,.3)" : "0 0 24px rgba(157,77,255,.15)",
+        cursor: "pointer",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+        <span
+          style={{
+            fontFamily: "var(--font-display)",
+            fontSize: 17,
+            letterSpacing: 2,
+            color: open ? "#5fe08a" : live ? "#22e8ff" : "#cfc4f2",
+          }}
+        >
+          {room.name.toUpperCase()}
+        </span>
+        <span style={{ fontFamily: "var(--font-body)", fontSize: 18, color: "#8878b8" }}>
+          {room.playerCount} IN
+        </span>
+      </div>
+      <div style={{ marginTop: 6, fontFamily: "var(--font-body)", fontSize: 17, color: "#8878b8" }}>
+        BETS {room.minBet}–{room.maxBet.toLocaleString()} · {room.state?.toUpperCase() ?? "…"}
+        {live && room.multiplier ? ` · ${room.multiplier.toFixed(2)}×` : ""}
+      </div>
+      <div
+        style={{
+          marginTop: 12,
+          padding: 10,
+          background: "#06040d",
+          boxShadow: "inset 0 0 0 1px #241640",
+          display: "flex",
+          gap: 6,
+          justifyContent: "center",
+          minHeight: 30,
+        }}
+      >
+        {(room.recentCrashes ?? []).slice(0, 6).map((m, i) => (
+          <span
+            key={i}
+            style={{
+              fontFamily: "var(--font-body)",
+              fontSize: 15,
+              padding: "0 6px",
+              border: `1px solid ${m >= 2 ? "#5fe08a" : m >= 1.3 ? "#6b5f9e" : "#8c3b2e"}`,
+              color: m >= 2 ? "#5fe08a" : m >= 1.3 ? "#8878b8" : "#f2643d",
+            }}
+          >
+            {m.toFixed(2)}×
+          </span>
+        ))}
+        {(room.recentCrashes ?? []).length === 0 && (
+          <span style={{ fontFamily: "var(--font-body)", fontSize: 15, color: "#5c4f80" }}>
+            FIRST ROUND SOON
+          </span>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+interface LobbyRoomInfo {
+  slug: string;
+  name: string;
+  minBet: number;
+  maxBet: number;
+  playerCount: number;
+  state?: string;
+  multiplier?: number;
+  recentCrashes?: number[];
 }
 
 function MachineCard({ game }: { game: GameInfo }) {

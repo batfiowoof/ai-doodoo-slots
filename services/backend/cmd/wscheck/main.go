@@ -22,15 +22,74 @@ type message struct {
 }
 
 func main() {
+	mode := "sync"
 	base := "http://localhost:8082"
-	if len(os.Args) > 1 {
-		base = os.Args[1]
+	args := os.Args[1:]
+	if len(args) > 0 && (args[0] == "sync" || args[0] == "lobby") {
+		mode = args[0]
+		args = args[1:]
 	}
-	if err := run(base); err != nil {
+	if len(args) > 0 {
+		base = args[0]
+	}
+	var err error
+	if mode == "lobby" {
+		err = checkLobby(base)
+	} else {
+		err = run(base)
+	}
+	if err != nil {
 		fmt.Println("FAIL:", err)
 		os.Exit(1)
 	}
-	fmt.Println("OK: sockets in sync, rejoin snapshot received")
+	if mode == "lobby" {
+		fmt.Println("OK: idle lobby received ~1 summary/sec and zero round ticks")
+	} else {
+		fmt.Println("OK: sockets in sync, rejoin snapshot received")
+	}
+}
+
+// checkLobby is the phase-16 gate: an idle lobby client receives roughly
+// one message per second and zero round ticks, regardless of room churn.
+func checkLobby(base string) error {
+	conn, err := dial(base)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	send(conn, "subscribe_lobby", nil)
+
+	summaries := 0
+	ticks := 0
+	var lastSummary map[string]any
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) {
+		_ = conn.SetReadDeadline(time.Now().Add(time.Until(deadline)))
+		var m message
+		if err := conn.ReadJSON(&m); err != nil {
+			break // read deadline reached: window over
+		}
+		fmt.Println("MSG:", m.Type)
+		switch m.Type {
+		case "lobby_summary":
+			summaries++
+			_ = json.Unmarshal(m.Payload, &lastSummary)
+		case "round_tick":
+			ticks++
+		}
+	}
+	if summaries < 4 {
+		return fmt.Errorf("only %d lobby summaries in ~6s", summaries)
+	}
+	if ticks != 0 {
+		return fmt.Errorf("lobby received %d round ticks — ticks must never fan out to the lobby", ticks)
+	}
+	raw, _ := json.Marshal(lastSummary)
+	if len(raw) > 300 {
+		raw = raw[:300]
+	}
+	fmt.Printf("summaries=%d ticks=0 last=%s\n", summaries, raw)
+	return nil
 }
 
 func dial(base string) (*websocket.Conn, error) {

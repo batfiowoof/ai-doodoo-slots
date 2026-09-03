@@ -37,16 +37,32 @@ func (s *Server) handleLobby(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	counts, connected := s.presence()
-	out := make([]roomDTO, 0, len(rooms))
+	type lobbyRoom struct {
+		roomDTO
+		State         string    `json:"state,omitempty"`
+		Multiplier    float64   `json:"multiplier,omitempty"`
+		RecentCrashes []float64 `json:"recentCrashes,omitempty"`
+	}
+	out := make([]lobbyRoom, 0, len(rooms))
 	for _, room := range rooms {
-		out = append(out, roomDTO{
+		lr := lobbyRoom{roomDTO: roomDTO{
 			ID: room.ID, Slug: room.Slug, Name: room.Name, GameID: room.GameID,
 			MinBet: room.MinBet, MaxBet: room.MaxBet, Capacity: int(room.Capacity),
 			PlayerCount: counts[room.Slug],
-		})
+		}}
+		if s.roomLive != nil {
+			if live, ok := s.roomLive(room.Slug); ok {
+				lr.State, _ = live["state"].(string)
+				lr.Multiplier, _ = live["multiplier"].(float64)
+				if rc, ok := live["recentCrashes"].([]float64); ok {
+					lr.RecentCrashes = rc
+				}
+			}
+		}
+		out = append(out, lr)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"rooms":           out,
+		"rooms":            out,
 		"connectedPlayers": connected,
 	})
 }

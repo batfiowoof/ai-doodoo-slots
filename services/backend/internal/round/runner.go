@@ -97,6 +97,8 @@ type Runner struct {
 	live     *Machine
 	liveID   int64
 	history  []float64 // last crash multipliers, most recent first
+	minBet   int64
+	maxBet   int64
 	intakeMu sync.Mutex
 }
 
@@ -137,6 +139,12 @@ func (r *Runner) LiveState() map[string]any {
 		"stakes":        m.StakesView(),
 	}
 }
+
+// Limits returns the room's enforced bet range.
+func (r *Runner) Limits() (min, max int64) { return r.minBet, r.maxBet }
+
+// SetLimits configures the room's bet range (loaded from the rooms table).
+func (r *Runner) SetLimits(min, max int64) { r.minBet, r.maxBet = min, max }
 
 // Run loops rounds until the context is cancelled.
 func (r *Runner) Run(ctx context.Context) {
