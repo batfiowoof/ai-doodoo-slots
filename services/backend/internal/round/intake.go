@@ -2,10 +2,12 @@ package round
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strconv"
 
+	"github.com/ai-doodoo-slots/services/backend/internal/bus"
 	"github.com/ai-doodoo-slots/services/backend/internal/clock"
 	"github.com/ai-doodoo-slots/services/backend/internal/store"
 	"github.com/ai-doodoo-slots/services/backend/internal/wallet"
@@ -35,11 +37,12 @@ type Intake struct {
 	runner  *Runner
 	persist Persister
 	clk     clock.Clock
+	bus     bus.Bus
 	logger  *slog.Logger
 }
 
-func NewIntake(r *Runner, persist Persister, clk clock.Clock, logger *slog.Logger) *Intake {
-	return &Intake{runner: r, persist: persist, clk: clk, logger: logger}
+func NewIntake(r *Runner, persist Persister, clk clock.Clock, b bus.Bus, logger *slog.Logger) *Intake {
+	return &Intake{runner: r, persist: persist, clk: clk, bus: b, logger: logger}
 }
 
 // PlaceBet validates and debits a stake during betting_open. The wallet
@@ -57,7 +60,7 @@ func (i *Intake) PlaceBet(id ws.Identity, credits, autoHundredths int64, idemKey
 	if m == nil || roundID == 0 {
 		return nil, codedBet(ErrUnknownRound)
 	}
-	if err := m.AddBet(id.UserID, credits, autoHundredths); err != nil {
+	if err := m.AddBet(id.UserID, credits, autoHundredths, id.DisplayName); err != nil {
 		return nil, codedBet(err)
 	}
 	betID, balance, err := i.persist.PlaceBet(context.Background(), id.UserID, roundID, credits, autoHundredths, idemKey)
@@ -69,6 +72,11 @@ func (i *Intake) PlaceBet(id ws.Identity, credits, autoHundredths int64, idemKey
 		return nil, codedBet(err)
 	}
 	m.SetBetID(id.UserID, betID)
+	i.publishRoom("bet_placed", map[string]any{
+		"userId":      id.UserID,
+		"displayName": id.DisplayName,
+		"credits":     credits,
+	})
 	return map[string]any{
 		"roundId":        roundID,
 		"betCredits":     credits,
@@ -96,6 +104,11 @@ func (i *Intake) CashOut(id ws.Identity) (map[string]any, error) {
 	if bet := m.StakeOf(id.UserID); bet != nil && bet.Cashed {
 		hundredths = bet.CashHundredths
 	}
+	i.publishRoom("bet_cashout", map[string]any{
+		"userId":      id.UserID,
+		"displayName": id.DisplayName,
+		"multiplier":  float64(hundredths) / 100,
+	})
 	if err := i.persist.MarkCashout(context.Background(), roundID, id.UserID, hundredths); err != nil {
 		// The machine remains the source of truth for settlement; a failed
 		// display update must not roll back the authoritative state.
@@ -256,3 +269,15 @@ func codedBet(err error) error {
 	}
 	return err
 }
+
+// publishRoom fans a room event out via the bus (the hub relays it to the
+// room's sockets; the lobby never sees it).
+func (i *Intake) publishRoom(evType string, payload map[string]any) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	i.bus.Publish(bus.Event{Topic: "rooms", Room: i.runner.room, Type: evType, Payload: raw})
+}
+
+

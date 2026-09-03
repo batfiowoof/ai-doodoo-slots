@@ -91,7 +91,7 @@ func main() {
 		runners[room.Slug] = runner
 		// The intake is the authorized money path for socket bet messages;
 		// the hub relays place_bet/cash_out through it.
-		intake := round.NewIntake(runner, persist, clock.Real{}, logger)
+		intake := round.NewIntake(runner, persist, clock.Real{}, api.Bus(), logger)
 		api.Hub().SetBetHandler(intake)
 		logger.Info("round runner started", "room", room.Slug, "game", room.GameID)
 	}

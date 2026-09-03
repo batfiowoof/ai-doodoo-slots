@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -20,13 +21,27 @@ const SignupBonusCredits int64 = 1000
 const bearerPrefix = "Bearer "
 
 // currentUser resolves the request identity. A Keycloak access token
-// (Authorization: Bearer) wins; the guest session cookie is the fallback.
-// Returns nil when there is neither; handlers decide whether that is an
-// error.
+// (Authorization: Bearer) wins; then the BFF's token cookie (which lets
+// WebSocket upgrades from the browser authenticate as a Keycloak user);
+// the guest session cookie is the final fallback.
 func (s *Server) currentUser(r *http.Request) *auth.SessionUser {
 	ctx := r.Context()
 	if h := r.Header.Get("Authorization"); len(h) > len(bearerPrefix) && h[:len(bearerPrefix)] == bearerPrefix {
 		return s.userFromKeycloakToken(ctx, h[len(bearerPrefix):])
+	}
+	if s.oidc != nil {
+		if c, err := r.Cookie("retro_kc"); err == nil && c.Value != "" {
+			if raw, derr := base64.RawURLEncoding.DecodeString(c.Value); derr == nil {
+				var t struct {
+					AccessToken string `json:"accessToken"`
+				}
+				if json.Unmarshal(raw, &t) == nil && t.AccessToken != "" {
+					if su := s.userFromKeycloakToken(ctx, t.AccessToken); su != nil {
+						return su
+					}
+				}
+			}
+		}
 	}
 	token, ok := auth.TokenFromRequest(r)
 	if !ok {
@@ -272,3 +287,6 @@ func (s *Server) handleRevokeSession(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+
+

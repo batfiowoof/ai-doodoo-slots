@@ -34,13 +34,13 @@ var testBase = time.Unix(1800000000, 0).UTC()
 
 func TestPlaceBetPhaseGuard(t *testing.T) {
 	m, _ := seedRound(t, 2.0)
-	if err := m.AddBet(1, 100, 0); err != nil {
+	if err := m.AddBet(1, 100, 0, "p1"); err != nil {
 		t.Fatalf("bet during betting_open: %v", err)
 	}
-	if err := m.AddBet(1, 100, 0); err == nil {
+	if err := m.AddBet(1, 100, 0, "p1"); err == nil {
 		t.Fatal("duplicate bet accepted")
 	}
-	if err := m.AddBet(2, 100, 0); err != nil {
+	if err := m.AddBet(2, 100, 0, "p2"); err != nil {
 		t.Fatalf("second player bet: %v", err)
 	}
 	// Step into locked: no more bets.
@@ -49,7 +49,7 @@ func TestPlaceBetPhaseGuard(t *testing.T) {
 		now = now.Add(200 * time.Millisecond)
 		m.Step(now)
 		if m.State() == "locked" {
-			if err := m.AddBet(3, 100, 0); err == nil {
+			if err := m.AddBet(3, 100, 0, "p3"); err == nil {
 				t.Fatal("bet accepted after betting closed")
 			}
 			break
@@ -61,7 +61,7 @@ func TestPlaceBetPhaseGuard(t *testing.T) {
 // cash-out message pays exactly once, at the server receipt-time multiplier.
 func TestCashOutPaysOnceAtReceiptTime(t *testing.T) {
 	m, base := seedRound(t, 5.0)
-	if err := m.AddBet(1, 100, 0); err != nil {
+	if err := m.AddBet(1, 100, 0, "p1"); err != nil {
 		t.Fatalf("bet: %v", err)
 	}
 	// Advance into running.
@@ -103,10 +103,10 @@ func TestCashOutPaysOnceAtReceiptTime(t *testing.T) {
 // display curve's real-time position.
 func TestAutoCashoutEvaluatedServerSide(t *testing.T) {
 	m, _ := seedRound(t, 2.0)
-	if err := m.AddBet(1, 100, 200); err != nil { // target 2.00
+	if err := m.AddBet(1, 100, 200, "p1"); err != nil { // target 2.00
 		t.Fatalf("bet: %v", err)
 	}
-	if err := m.AddBet(2, 100, 250); err != nil { // target above crash
+	if err := m.AddBet(2, 100, 250, "p2"); err != nil { // target above crash
 		t.Fatalf("bet: %v", err)
 	}
 	now := testBase
@@ -128,7 +128,7 @@ func TestAutoCashoutEvaluatedServerSide(t *testing.T) {
 
 func TestCashOutTooLateAfterCrash(t *testing.T) {
 	m, base := seedRound(t, 1.20)
-	if err := m.AddBet(1, 100, 0); err != nil {
+	if err := m.AddBet(1, 100, 0, "p1"); err != nil {
 		t.Fatalf("bet: %v", err)
 	}
 	now := base

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -50,11 +52,13 @@ type Hub struct {
 	log  *slog.Logger
 	bets BetHandler
 
+	allowedOrigins map[string]bool
+
 	betsMu sync.RWMutex
 
-	mu     sync.RWMutex
+	mu      sync.RWMutex
 	clients map[*Client]bool
-	rooms  map[string]map[*Client]bool // slug -> subscribed clients
+	rooms   map[string]map[*Client]bool // slug -> subscribed clients
 }
 
 // SetBetHandler attaches the money path (wired after the round runners
@@ -72,14 +76,23 @@ func (h *Hub) betHandler() BetHandler {
 }
 
 func NewHub(auth Authenticator, src RoomSource, b bus.Bus, clk clock.Clock, log *slog.Logger) *Hub {
+	allowed := make(map[string]bool)
+	if v := os.Getenv("WS_ALLOWED_ORIGINS"); v != "" {
+		for _, o := range strings.Split(v, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				allowed[o] = true
+			}
+		}
+	}
 	return &Hub{
-		auth:    auth,
-		src:     src,
-		bus:     b,
-		clk:     clk,
-		log:     log,
-		clients: make(map[*Client]bool),
-		rooms:   make(map[string]map[*Client]bool),
+		auth:           auth,
+		src:            src,
+		bus:            b,
+		clk:            clk,
+		log:            log,
+		allowedOrigins: allowed,
+		clients:        make(map[*Client]bool),
+		rooms:          make(map[string]map[*Client]bool),
 	}
 }
 
@@ -111,12 +124,20 @@ func (h *Hub) Run(ctx context.Context) {
 }
 
 // ServeHTTP upgrades and registers a connection. Unauthenticated upgrades
-// are rejected before any socket exists.
+// are rejected before any socket exists. Cross-origin upgrades are allowed
+// only for origins listed in WS_ALLOWED_ORIGINS (the BFF origin).
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.auth(r)
 	if !ok || id == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
+	}
+	origin := r.Header.Get("Origin")
+	if origin != "" && origin != "http://"+r.Host && origin != "https://"+r.Host {
+		if !h.allowedOrigins[origin] {
+			http.Error(w, "origin not allowed", http.StatusForbidden)
+			return
+		}
 	}
 	up := websocket.Upgrader{ReadBufferSize: 1024, WriteBufferSize: 1024}
 	conn, err := up.Upgrade(w, r, nil)
@@ -276,3 +297,5 @@ func (h *Hub) BroadcastRoom(slug string, m Message) {
 		}
 	}
 }
+
+

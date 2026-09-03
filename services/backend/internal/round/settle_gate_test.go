@@ -57,7 +57,7 @@ func TestSettleTwoHundredPlayersAtomically(t *testing.T) {
 			wg.Add(1)
 			go func(userID int64) {
 				defer wg.Done()
-				if err := m.AddBet(userID, stake, 200); err != nil { // auto 2.00x
+				if err := m.AddBet(userID, stake, 200, ""); err != nil { // auto 2.00x
 					t.Errorf("add bet: %v", err)
 					return
 				}

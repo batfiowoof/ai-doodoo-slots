@@ -96,6 +96,7 @@ type Runner struct {
 	liveMu   sync.RWMutex
 	live     *Machine
 	liveID   int64
+	history  []float64 // last crash multipliers, most recent first
 	intakeMu sync.Mutex
 }
 
@@ -125,10 +126,15 @@ func (r *Runner) LiveState() map[string]any {
 	if m.State() == game.PhaseRunning {
 		mult = m.MultiplierAt(r.clk.Now())
 	}
+	r.liveMu.RLock()
+	history := append([]float64(nil), r.history...)
+	r.liveMu.RUnlock()
 	return map[string]any{
-		"roundId":    id,
-		"state":      string(m.State()),
-		"multiplier": mult,
+		"roundId":       id,
+		"state":         string(m.State()),
+		"multiplier":    mult,
+		"recentCrashes": history,
+		"stakes":        m.StakesView(),
 	}
 }
 
@@ -221,6 +227,23 @@ func (r *Runner) runRound(ctx context.Context) error {
 						r.logger.Error("settle round", "room", r.room, "round", roundID, "err", err)
 						return err
 					}
+					// History + per-player payouts for the clients.
+					r.liveMu.Lock()
+					r.history = append([]float64{m.Result().Multiplier}, r.history...)
+					if len(r.history) > 10 {
+						r.history = r.history[:10]
+					}
+					r.liveMu.Unlock()
+					payouts := make([]map[string]any, 0, len(settled))
+					for _, s := range settled {
+						if s.PayoutCredits > 0 {
+							payouts = append(payouts, map[string]any{
+								"userId": s.UserID, "payoutCredits": s.PayoutCredits,
+							})
+						}
+					}
+					raw, _ := json.Marshal(map[string]any{"payouts": payouts})
+					r.publish(Event{Room: r.room, Type: "round_settlements", Payload: raw})
 				}
 				r.publish(ev)
 			}

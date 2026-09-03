@@ -26,6 +26,7 @@ var (
 // the gameserver's memory; persistence happens at place and settle time.
 type Bet struct {
 	UserID          int64
+	DisplayName     string
 	BetCredits      int64
 	AutoHundredths  int64 // 0 = manual-only rider
 	Cashed          bool
@@ -52,7 +53,7 @@ type bets struct {
 func newBets() *bets { return &bets{byUser: make(map[int64]*Bet)} }
 
 // add registers a stake. Only during betting_open, one per user per round.
-func (b *bets) add(m *Machine, userID, credits, autoHundredths int64) error {
+func (b *bets) add(m *Machine, userID, credits, autoHundredths int64, displayName string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if m.StateForStakes() != game.PhaseBettingOpen {
@@ -61,7 +62,7 @@ func (b *bets) add(m *Machine, userID, credits, autoHundredths int64) error {
 	if _, ok := b.byUser[userID]; ok {
 		return ErrAlreadyBet
 	}
-	b.byUser[userID] = &Bet{UserID: userID, BetCredits: credits, AutoHundredths: autoHundredths}
+	b.byUser[userID] = &Bet{UserID: userID, DisplayName: displayName, BetCredits: credits, AutoHundredths: autoHundredths}
 	return nil
 }
 
@@ -160,11 +161,27 @@ func (b *bets) of(userID int64) *Bet {
 	return b.byUser[userID]
 }
 
+// view projects stakes in stable user-id order.
+func (b *bets) view() []StakeView {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]StakeView, 0, len(b.byUser))
+	for _, bet := range b.byUser {
+		v := StakeView{UserID: bet.UserID, DisplayName: bet.DisplayName, Credits: bet.BetCredits}
+		if bet.Cashed {
+			v.CashedAt = float64(bet.CashHundredths) / 100
+		}
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UserID < out[j].UserID })
+	return out
+}
+
 // --- machine surface (locking delegated to bets) ----------------------
 
 // AddBet registers a stake during betting_open.
-func (m *Machine) AddBet(userID, credits, autoHundredths int64) error {
-	return m.stakes.add(m, userID, credits, autoHundredths)
+func (m *Machine) AddBet(userID, credits, autoHundredths int64, displayName string) error {
+	return m.stakes.add(m, userID, credits, autoHundredths, displayName)
 }
 
 // RemoveBet undoes an AddBet when the wallet debit failed.
@@ -186,8 +203,19 @@ func (m *Machine) StakeUserIDs() []int64 { return m.stakes.userIDs() }
 // commits.
 func (m *Machine) SetBetID(userID, betID int64) { m.stakes.setBetID(userID, betID) }
 
-// StakeOf returns a copy of the user's stake, if any.
+// StakeOf returns a pointer to the user's stake, if any.
 func (m *Machine) StakeOf(userID int64) *Bet { return m.stakes.of(userID) }
+
+// StakeView is the client-safe projection of a stake.
+type StakeView struct {
+	UserID      int64   `json:"userId"`
+	DisplayName string  `json:"displayName,omitempty"`
+	Credits     int64   `json:"credits"`
+	CashedAt    float64 `json:"cashedAt,omitempty"` // multiplier, 0 = riding
+}
+
+// StakesView lists current stakes for snapshots and reconnects.
+func (m *Machine) StakesView() []StakeView { return m.stakes.view() }
 
 // CodedError tags intake failures with a stable wire code so the socket
 // layer can relay them without importing this package.
