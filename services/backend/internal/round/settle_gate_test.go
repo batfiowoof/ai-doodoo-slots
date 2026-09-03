@@ -10,6 +10,7 @@ import (
 	"github.com/ai-doodoo-slots/services/backend/internal/fair"
 	"github.com/ai-doodoo-slots/services/backend/internal/game"
 	"github.com/ai-doodoo-slots/services/backend/internal/testdb"
+	"github.com/ai-doodoo-slots/services/backend/internal/clock"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -37,7 +38,7 @@ func TestSettleTwoHundredPlayersAtomically(t *testing.T) {
 		if err := pool.QueryRow(ctx,
 			`INSERT INTO rooms (game_id, slug, name, min_bet, max_bet, capacity)
 			 VALUES ('crash', $1, 'gate room', 1, 1000, 500) RETURNING id`,
-			fmt.Sprintf("gate-%d-%d", run, time.Now().UnixNano())).Scan(&roomID); err != nil {
+			fmt.Sprintf("gate-%d-%d", run, (clock.Real{}).Now().UnixNano())).Scan(&roomID); err != nil {
 			t.Fatalf("room: %v", err)
 		}
 		roundID, err := persist.OpenRound(ctx, roomID, "crash", 0, "")
@@ -52,7 +53,7 @@ func TestSettleTwoHundredPlayersAtomically(t *testing.T) {
 		for i := 0; i < players; i++ {
 			userIDs[i] = testdb.NewUser(t, pool, 1000)
 		}
-		start := time.Now()
+		start := (clock.Real{}).Now()
 		for i := 0; i < players; i++ {
 			wg.Add(1)
 			go func(userID int64) {
@@ -132,5 +133,3 @@ func toSettled(s []Settlement) []SettledBet {
 
 var _ = game.RoundGame(nil)
 var _ = (*pgxpool.Pool)(nil)
-
-

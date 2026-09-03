@@ -92,8 +92,9 @@ func TestIdempotentReplay(t *testing.T) {
 		t.Fatalf("replay differs: %+v vs %+v", first, second)
 	}
 
-	// Exactly one bet, one synthetic round, and either one or two ledger
-	// transactions (payout only when payout > 0).
+	// Exactly one bet, one synthetic round, and the ledger consistent with
+	// the outcome: signup bonus + debit, plus a payout transaction only
+	// when the bet won (the slots outcome is random per run).
 	var bets, rounds, txns int64
 	if err := f.pool.QueryRow(ctx, `SELECT COUNT(*) FROM bets WHERE user_id = $1`, f.userID).Scan(&bets); err != nil {
 		t.Fatal(err)
@@ -107,8 +108,12 @@ func TestIdempotentReplay(t *testing.T) {
 	if bets != 1 || rounds != 1 {
 		t.Fatalf("bets=%d rounds=%d, want 1/1 (replay duplicated rows)", bets, rounds)
 	}
-	if txns != 2 {
-		t.Fatalf("transactions=%d, want 2 (debit+payout, no duplicates)", txns)
+	wantTxns := int64(2)
+	if first.PayoutCredits > 0 {
+		wantTxns = 3
+	}
+	if txns != wantTxns {
+		t.Fatalf("transactions=%d, want %d (no duplicates from replay)", txns, wantTxns)
 	}
 
 	// Balance equals ledger sum.

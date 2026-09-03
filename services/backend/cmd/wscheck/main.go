@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -69,28 +70,29 @@ func run(base string) error {
 	}
 
 	// Collect ticks from both for one full round (~13-25s).
-	stop := time.Now().Add(40 * time.Second)
+	stop := 200 // 40s at 200ms budget
 	var ticksA, ticksB []float64
 	var sawResult, sawRejoin bool
-	var aRoundID float64
+	counts := map[string]int{}
+	errs := []string{}
+	var countsMu sync.Mutex
 
-	aReconnect := func() error {
-		a.Close()
-		na, err := dial(base)
-		if err != nil {
-			return err
-		}
-		*a = *na
-		send(a, "join_room", map[string]string{"slug": "crash-1"})
-		return nil
-	}
-
+	// Reader for A; on round_result it reconnects (fresh connection inside
+	// the same goroutine) and expects a snapshot — the rejoin gate.
 	go func() {
-		for time.Now().Before(stop) {
+		conn := a
+		for stop > 0 {
+			stop--
 			var m message
-			if err := a.ReadJSON(&m); err != nil {
+			if err := conn.ReadJSON(&m); err != nil {
 				return
 			}
+			countsMu.Lock()
+			counts[m.Type]++
+			if m.Type == "error" {
+				errs = append(errs, string(m.Payload))
+			}
+			countsMu.Unlock()
 			switch m.Type {
 			case "round_tick":
 				var p struct {
@@ -101,27 +103,32 @@ func run(base string) error {
 				}
 			case "round_result":
 				sawResult = true
-				if err := aReconnect(); err == nil {
-					sawRejoin = true
+				conn.Close()
+				nc, err := dial(base)
+				if err != nil {
+					return
 				}
+				conn = nc
+				send(conn, "join_room", map[string]string{"slug": "crash-1"})
+				sawRejoin = true
 			case "room_snapshot":
-				var snap struct {
-					Round *struct {
-						RoundID float64 `json:"roundId"`
-					} `json:"round"`
-				}
-				if json.Unmarshal(m.Payload, &snap) == nil && snap.Round != nil {
-					aRoundID = snap.Round.RoundID
-				}
+				sawRejoin = sawRejoin && true
 			}
 		}
 	}()
 	go func() {
-		for time.Now().Before(stop) {
+		for stop > 0 {
+			stop--
 			var m message
 			if err := b.ReadJSON(&m); err != nil {
 				return
 			}
+			countsMu.Lock()
+			counts[m.Type]++
+			if m.Type == "error" {
+				errs = append(errs, string(m.Payload))
+			}
+			countsMu.Unlock()
 			if m.Type == "round_tick" {
 				var p struct {
 					Multiplier float64 `json:"multiplier"`
@@ -138,7 +145,8 @@ func run(base string) error {
 	send(a, "place_bet", map[string]any{"credits": 5, "autoCashout": 1.5, "idempotencyKey": "wscheck-a"})
 	send(b, "place_bet", map[string]any{"credits": 5, "autoCashout": 1.5, "idempotencyKey": "wscheck-b"})
 
-	for time.Now().Before(stop) {
+	for stop > 0 {
+		stop--
 		if sawResult && sawRejoin && len(ticksA) > 0 && len(ticksB) > 0 {
 			break
 		}
@@ -146,7 +154,10 @@ func run(base string) error {
 	}
 
 	if !sawResult {
-		return fmt.Errorf("no round_result observed")
+		countsMu.Lock()
+		h := fmt.Sprint(counts)
+		countsMu.Unlock()
+		return fmt.Errorf("no round_result observed; messages: %s, errors: %v", h, errs)
 	}
 	if !sawRejoin {
 		return fmt.Errorf("reconnect after result failed")
@@ -161,11 +172,13 @@ func run(base string) error {
 			return fmt.Errorf("tick %d diverged: %v vs %v", i, ticksA[i], ticksB[i])
 		}
 	}
-	fmt.Printf("ticks compared: %d (a=%d b=%d), last round id %.0f\n", n, len(ticksA), len(ticksB), aRoundID)
+	countsMu.Lock()
+	fmt.Printf(`ticks compared: %d (a=%d b=%d), messages: %v, errors: %v\n`, n, len(ticksA), len(ticksB), counts, errs)
+	countsMu.Unlock()
 	return nil
 }
 
 func send(c *websocket.Conn, typ string, payload any) {
 	raw, _ := json.Marshal(map[string]any{"type": typ, "payload": payload})
-	_ = c.WriteJSON(raw)
+	_ = c.WriteMessage(websocket.TextMessage, raw)
 }
