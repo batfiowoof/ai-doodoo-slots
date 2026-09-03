@@ -52,7 +52,8 @@ type Hub struct {
 	log  *slog.Logger
 	bets BetHandler
 
-	roomInfo func() map[string]map[string]any
+	roomInfo     func() map[string]map[string]any
+	roomHandlers map[string]RoomHandler
 
 	allowedOrigins map[string]bool
 
@@ -69,6 +70,25 @@ func (h *Hub) SetBetHandler(b BetHandler) {
 	h.betsMu.Lock()
 	h.bets = b
 	h.betsMu.Unlock()
+}
+
+// SetRoomHandler attaches the game-action path for one room (wired after
+// the room's table runner starts). game_action messages from connections
+// joined to that room route through it; the BetHandler (crash) is untouched.
+func (h *Hub) SetRoomHandler(slug string, rh RoomHandler) {
+	h.betsMu.Lock()
+	if h.roomHandlers == nil {
+		h.roomHandlers = make(map[string]RoomHandler)
+	}
+	h.roomHandlers[slug] = rh
+	h.betsMu.Unlock()
+}
+
+// RoomHandlerFor returns the game-action handler for a room, if any.
+func (h *Hub) RoomHandlerFor(slug string) RoomHandler {
+	h.betsMu.RLock()
+	defer h.betsMu.RUnlock()
+	return h.roomHandlers[slug]
 }
 
 // SetRoomInfo attaches a live-round catalog used to enrich lobby summaries:
@@ -151,7 +171,13 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	up := websocket.Upgrader{ReadBufferSize: 1024, WriteBufferSize: 1024}
+	// The origin gate above already made the allowlist decision (same-host
+	// always passes; cross-origin only from WS_ALLOWED_ORIGINS), so the
+	// upgrader's own CheckOrigin defers to it.
+	up := websocket.Upgrader{
+		ReadBufferSize: 1024, WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
 	conn, err := up.Upgrade(w, r, nil)
 	if err != nil {
 		h.log.Warn("ws upgrade failed", "err", err)

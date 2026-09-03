@@ -220,6 +220,93 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
         "429": { $ref: "#/components/responses/Error" }
 
+  /api/v1/games/blackjack/deal:
+    post:
+      operationId: blackjackDeal
+      tags: [games]
+      summary: Deal a blackjack hand
+      description: |
+        Server-authoritative, stateful. Shuffles a full deck from the personal
+        fair stream (HMAC Fisher-Yates), deals two cards each, debits the
+        stake, and records the bet + hand in one transaction. A natural 21
+        (player or dealer) resolves and pays inside the same transaction.
+        While the hand is active the dealer's hole card is withheld.
+
+        One active hand per user; an abandoned hand (idle > 5 min)
+        auto-stands on the next deal. Idempotent like /play.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BlackjackDealRequest" }
+      responses:
+        "200":
+          description: Hand state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HandResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "402": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
+  /api/v1/hands/active:
+    get:
+      operationId: getActiveHand
+      tags: [games]
+      summary: The caller's in-progress blackjack hand, if any
+      responses:
+        "200":
+          description: Active hand or null
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hand:
+                    nullable: true
+                    allOf: [{ $ref: "#/components/schemas/BlackjackHand" }]
+
+  /api/v1/hands/{id}/action:
+    post:
+      operationId: handAction
+      tags: [games]
+      summary: Hit, stand, or double the active hand
+      description: |
+        Replays the hand from the fairness triple + action log, applies the
+        action, and persists in one transaction. Double debits the extra
+        stake; stand / bust / 21 completes the hand: the dealer plays out and
+        the payout credits atomically. Retried idempotency keys return the
+        current state without drawing again.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action, idempotencyKey]
+              properties:
+                action: { type: string, enum: [hit, stand, double] }
+                idempotencyKey: { type: string, maxLength: 64 }
+      responses:
+        "200":
+          description: Hand state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HandResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "402": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
   /api/v1/bets:
     get:
       operationId: listBets
@@ -528,6 +615,13 @@ components:
         id: { type: string }
         name: { type: string }
         theoreticalRtp: { type: number }
+        kind:
+          type: string
+          enum: [instant, stateful]
+          description: instant = single-call engines; stateful = deal/action flow (blackjack)
+        betSteps:
+          type: array
+          items: { type: integer, format: int64 }
         paytable:
           description: Game-specific display data (symbol weights/pays for slots)
           nullable: true
@@ -561,6 +655,56 @@ components:
         serverSeedHash: { type: string }
         clientSeed: { type: string }
         nonce: { type: integer, format: int64 }
+
+    BlackjackDealRequest:
+      type: object
+      required: [betCredits, idempotencyKey]
+      properties:
+        betCredits:
+          type: integer
+          format: int64
+          description: One of the game's bet steps
+        clientSeed: { type: string, maxLength: 256 }
+        idempotencyKey: { type: string, maxLength: 64 }
+
+    BlackjackHand:
+      type: object
+      required: [handId, betId, status, betCredits, payoutCredits, playerCards, dealerCards, playerTotal, doubled, canDouble, actions]
+      properties:
+        handId: { type: integer, format: int64 }
+        betId: { type: integer, format: int64 }
+        status: { type: string, enum: [active, complete] }
+        betCredits: { type: integer, format: int64 }
+        payoutCredits: { type: integer, format: int64 }
+        outcome:
+          type: string
+          enum: [blackjack, win, push, lose, bust]
+          description: Present once the hand is complete
+        playerCards:
+          type: string
+          description: Compact card codes, e.g. "AsKd7c"
+        dealerCards:
+          type: string
+          description: Up card only while the hand is active; full hand once complete
+        playerTotal: { type: integer }
+        dealerTotal:
+          type: integer
+          nullable: true
+          description: Present once the hand is complete
+        doubled: { type: boolean }
+        canDouble: { type: boolean }
+        actions:
+          type: array
+          items: { type: string, enum: [hit, stand, double] }
+
+    HandResponse:
+      type: object
+      required: [hand, balanceCredits, fairness, replay]
+      properties:
+        hand: { $ref: "#/components/schemas/BlackjackHand" }
+        balanceCredits: { type: integer, format: int64 }
+        fairness: { $ref: "#/components/schemas/FairnessTriple" }
+        replay: { type: boolean }
 
     FairCurrent:
       type: object

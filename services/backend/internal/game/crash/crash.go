@@ -60,7 +60,7 @@ func (c *Crash) Phases() []game.Phase {
 // of elapsed seconds since the running phase began. Exported for the round
 // machine's Config.
 func MultiplierAt(elapsedSeconds float64) float64 {
-	return math.Floor(100 * math.Exp(GrowthRate*elapsedSeconds)) / 100
+	return math.Floor(100*math.Exp(GrowthRate*elapsedSeconds)) / 100
 }
 
 // RunningFor returns how long the display curve needs to reach the round's

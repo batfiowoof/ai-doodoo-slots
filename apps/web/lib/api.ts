@@ -1,7 +1,15 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { BetRow, FairCurrent, GameInfo, Me, SlotsOutcome } from "./types";
+import type {
+  BetRow,
+  BlackjackHandView,
+  FairCurrent,
+  GameInfo,
+  HandResponse,
+  Me,
+  SlotsOutcome,
+} from "./types";
 
 // All client traffic goes through the same-origin BFF; the client never
 // talks to the Go service directly and never computes an outcome.
@@ -155,6 +163,98 @@ export function useDeposit() {
       qc.setQueryData<Me>(["me"], (old) =>
         old ? { ...old, balanceCredits: data.balanceCredits } : old,
       );
+    },
+  });
+}
+
+// ---- Blackjack (stateful deal/action flow) ----
+
+/** The caller's in-progress hand, if any — picked up on page load. */
+export function useActiveHand(enabled: boolean) {
+  return useQuery({
+    queryKey: ["hand"],
+    queryFn: async (): Promise<BlackjackHandView | null> => {
+      const res = await fetch("/api/v1/hands/active");
+      if (!res.ok) throw new Error(`/api/v1/hands/active failed: ${res.status}`);
+      const data = (await res.json()) as { hand: BlackjackHandView | null };
+      return data.hand;
+    },
+    enabled,
+    staleTime: 0,
+  });
+}
+
+function applyHandResponse(qc: ReturnType<typeof useQueryClient>, data: HandResponse) {
+  qc.setQueryData<Me>(["me"], (old) =>
+    old ? { ...old, balanceCredits: data.balanceCredits } : old,
+  );
+  qc.setQueryData<FairCurrent>(["fair"], {
+    serverSeedHash: data.fairness.serverSeedHash,
+    clientSeed: data.fairness.clientSeed,
+    nonce: data.fairness.nonce,
+  });
+  if (data.hand.status === "complete") {
+    // The settled bet row (final stake + payout) only exists server-side
+    // once the hand completes; refetch history.
+    void qc.invalidateQueries({ queryKey: ["bets"] });
+  }
+}
+
+export interface DealInput {
+  betCredits: number;
+  clientSeed: string;
+}
+
+/** Deals a blackjack hand; the server shuffles and holds the deck. */
+export function useDeal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ betCredits, clientSeed }: DealInput): Promise<HandResponse> => {
+      const res = await fetch("/api/v1/games/blackjack/deal", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ betCredits, clientSeed, idempotencyKey: crypto.randomUUID() }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new PlayError(res.status, body?.message ?? `deal failed: ${res.status}`);
+      }
+      return res.json() as Promise<HandResponse>;
+    },
+    onSuccess: (data) => applyHandResponse(qc, data),
+    onError: () => {
+      void qc.invalidateQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
+export type HandAction = "hit" | "stand" | "double";
+
+/** Applies hit/stand/double; completion credits the payout server-side. */
+export function useHandAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      handId,
+      action,
+    }: {
+      handId: number;
+      action: HandAction;
+    }): Promise<HandResponse> => {
+      const res = await fetch(`/api/v1/hands/${handId}/action`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action, idempotencyKey: crypto.randomUUID() }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new PlayError(res.status, body?.message ?? `action failed: ${res.status}`);
+      }
+      return res.json() as Promise<HandResponse>;
+    },
+    onSuccess: (data) => applyHandResponse(qc, data),
+    onError: () => {
+      void qc.invalidateQueries({ queryKey: ["me"] });
     },
   });
 }

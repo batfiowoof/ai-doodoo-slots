@@ -6,6 +6,7 @@
 package ws
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/ai-doodoo-slots/services/backend/internal/admin"
@@ -44,6 +45,16 @@ type Authenticator func(r *http.Request) (*Identity, bool)
 type BetHandler interface {
 	PlaceBet(id Identity, credits, autoHundredths int64, idemKey string) (map[string]any, error)
 	CashOut(id Identity) (map[string]any, error)
+}
+
+// RoomHandler is the authorized path for room-scoped game actions (poker
+// buy-ins, folds, raises). The hub routes a game_action message to the
+// handler registered for the connection's joined room; implementations
+// re-check identity status, table state, and idempotency server-side, and
+// return the authoritative ack payload. The socket layer never trusts
+// message content beyond shape.
+type RoomHandler interface {
+	HandleGameAction(id Identity, payload json.RawMessage) (map[string]any, error)
 }
 
 // LobbyTopic and session/user/room topics are bus topics the hub listens to.

@@ -95,7 +95,7 @@ func (c *Client) writePump() {
 
 // inbound message types. Every money-moving type is re-authorized per
 // message: identity status (banned/self-excluded), phase, and idempotency
-// are all checked server-side by the BetHandler.
+// are all checked server-side by the BetHandler or the room's RoomHandler.
 var inboundTypes = map[string]bool{
 	"subscribe_lobby":   true,
 	"unsubscribe_lobby": true,
@@ -103,6 +103,7 @@ var inboundTypes = map[string]bool{
 	"leave_room":        true,
 	"place_bet":         true,
 	"cash_out":          true,
+	"game_action":       true,
 }
 
 func (c *Client) readPump() {
@@ -233,15 +234,62 @@ func (c *Client) handle(m Message) {
 
 	case "cash_out":
 		c.handleBet("cash_out", m.Payload)
+
+	case "game_action":
+		c.handleGameAction(m.Payload)
 	}
 }
 
-// handleBet routes a money message through the BetHandler — the same
-// authorization path as an HTTP request — and answers with bet_ack or
-// error. The response payload is authoritative state from the server.
+// handleGameAction routes a room-scoped game action (poker buy-in, fold,
+// raise…) through the joined room's RoomHandler — the same authorization
+// path as an HTTP request — and answers with game_ack or error. The
+// response payload is authoritative state from the server.
+func (c *Client) handleGameAction(payload json.RawMessage) {
+	// Per-message authorization: a connection authenticated before a ban
+	// must not move money.
+	if c.id.Status != "active" {
+		c.sendJSON(Message{Type: "error", Payload: json.RawMessage(`{"code":"status_forbids_betting"}`)})
+		return
+	}
+	var p struct {
+		Action string `json:"action"`
+	}
+	if json.Unmarshal(payload, &p) != nil || p.Action == "" {
+		c.sendJSON(Message{Type: "error", Payload: json.RawMessage(`{"code":"bad_request"}`)})
+		return
+	}
+	// The message routes to the handler of the room this connection joined.
+	room := c.joinedRoom()
+	if room == "" {
+		c.sendJSON(Message{Type: "error", Payload: json.RawMessage(`{"code":"not_in_room"}`)})
+		return
+	}
+	h := c.hub.RoomHandlerFor(room)
+	if h == nil {
+		c.sendJSON(Message{Type: "error", Payload: json.RawMessage(`{"code":"no_game_in_room"}`)})
+		return
+	}
+	resp, err := h.HandleGameAction(c.id, payload)
+	if err != nil {
+		code := "action_rejected"
+		if ce, ok := err.(interface{ Code() string }); ok {
+			code = ce.Code()
+		}
+		raw, _ := json.Marshal(map[string]any{"code": code, "message": err.Error(), "room": room})
+		c.sendJSON(Message{Type: "error", Payload: raw})
+		return
+	}
+	raw, _ := json.Marshal(resp)
+	c.sendJSON(Message{Type: "game_ack", Payload: raw})
+}
+
+// handleBet routes a money message through the joined room's RoomHandler
+// when one is registered (per-room limits and rounds), falling back to the
+// global BetHandler. Either way the authorization path is the same as an
+// HTTP request, and the bet_ack payload is authoritative server state.
 func (c *Client) handleBet(kind string, payload json.RawMessage) {
 	h := c.hub.betHandler()
-	if h == nil {
+	if h == nil && c.hub.RoomHandlerFor(c.joinedRoom()) == nil {
 		c.sendJSON(Message{Type: "error", Payload: json.RawMessage(`{"code":"bets_unavailable"}`)})
 		return
 	}
@@ -255,6 +303,23 @@ func (c *Client) handleBet(kind string, payload json.RawMessage) {
 	room := c.joinedRoom()
 	if room == "" {
 		c.sendJSON(Message{Type: "error", Payload: json.RawMessage(`{"code":"not_in_room"}`)})
+		return
+	}
+
+	// Room-scoped routing: the wire verb rides in as the action.
+	if rh := c.hub.RoomHandlerFor(room); rh != nil {
+		resp, err := rh.HandleGameAction(c.id, injectAction(payload, kind))
+		if err != nil {
+			code := "bet_rejected"
+			if ce, ok := err.(interface{ Code() string }); ok {
+				code = ce.Code()
+			}
+			raw, _ := json.Marshal(map[string]any{"code": code, "message": err.Error(), "room": room})
+			c.sendJSON(Message{Type: "error", Payload: raw})
+			return
+		}
+		raw, _ := json.Marshal(resp)
+		c.sendJSON(Message{Type: "bet_ack", Payload: raw})
 		return
 	}
 
@@ -287,6 +352,21 @@ func (c *Client) handleBet(kind string, payload json.RawMessage) {
 	}
 	raw, _ := json.Marshal(resp)
 	c.sendJSON(Message{Type: "bet_ack", Payload: raw})
+}
+
+// injectAction folds the wire verb into the payload so a RoomHandler can
+// dispatch place_bet/cash_out like any other game action.
+func injectAction(payload json.RawMessage, kind string) json.RawMessage {
+	var m map[string]any
+	if json.Unmarshal(payload, &m) != nil {
+		m = map[string]any{}
+	}
+	m["action"] = kind
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return payload
+	}
+	return raw
 }
 
 // joinedRoom returns the connection's current (non-lobby) room, if any.

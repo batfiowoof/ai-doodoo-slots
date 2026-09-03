@@ -86,21 +86,16 @@ func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 
 // handleListGames exposes the registry for display only.
 func (s *Server) handleListGames(w http.ResponseWriter, r *http.Request) {
-	games := make([]map[string]any, 0)
-	for _, g := range s.registry.List() {
-		name := g.ID()
-		if d, ok := g.(interface{ DisplayName() string }); ok {
-			name = d.DisplayName()
-		}
-		var paytable any
-		if p, ok := g.(interface{ Paytable() any }); ok {
-			paytable = p.Paytable()
-		}
+	listings := s.registry.Listings()
+	games := make([]map[string]any, 0, len(listings))
+	for _, l := range listings {
 		games = append(games, map[string]any{
-			"id":             g.ID(),
-			"name":           name,
-			"theoreticalRtp": g.TheoreticalRTP(),
-			"paytable":       paytable,
+			"id":             l.ID,
+			"name":           l.Name,
+			"theoreticalRtp": l.TheoreticalRTP,
+			"paytable":       l.Paytable,
+			"betSteps":       l.BetSteps,
+			"kind":           l.Kind,
 		})
 	}
 	writeJSON(w, http.StatusOK, games)

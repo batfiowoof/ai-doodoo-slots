@@ -64,6 +64,7 @@ services:
       DATABASE_URL: postgres://retro:retro@postgres:5432/retrocasino?sslmode=disable
       GAMESERVER_ADDR: ":8082"
       COOKIE_SECURE: "false"
+      WS_ALLOWED_ORIGINS: http://localhost:3000
       KEYCLOAK_ISSUER: http://localhost:8081/realms/retro-casino
       KEYCLOAK_CLIENT_ID: web
       KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/retro-casino/protocol/openid-connect/certs

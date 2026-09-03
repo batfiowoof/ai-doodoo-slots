@@ -37,6 +37,24 @@ type Bet struct {
 	CashoutHundredths     int64
 }
 
+type BlackjackHand struct {
+	ID            int64
+	UserID        int64
+	BetID         int64
+	Status        string
+	BetCredits    int64
+	PayoutCredits int64
+	Actions       []byte
+	ActionKeys    []byte
+	HandState     []byte
+	ServerSeedID  int64
+	ClientSeed    string
+	Nonce         int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	CompletedAt   *time.Time
+}
+
 type ChainSeed struct {
 	ID         int64
 	Index      int64

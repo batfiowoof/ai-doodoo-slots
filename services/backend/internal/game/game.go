@@ -34,6 +34,20 @@ type Game interface {
 type Registry struct {
 	mu    sync.RWMutex
 	games map[string]Game
+	// listings are metadata-only entries for games that are not single-call
+	// instant engines (blackjack deals and takes actions over its own
+	// endpoints). They appear in GET /api/v1/games but never in Get().
+	listings map[string]Listing
+}
+
+// Listing is one entry of the games listing, unified across engine kinds.
+type Listing struct {
+	ID             string  `json:"id"`
+	Name           string  `json:"name"`
+	TheoreticalRTP float64 `json:"theoreticalRtp"`
+	Paytable       any     `json:"paytable,omitempty"`
+	BetSteps       []int64 `json:"betSteps,omitempty"`
+	Kind           string  `json:"kind"` // "instant" or "stateful"
 }
 
 // PhaseKind is one state of a shared round.
@@ -84,7 +98,7 @@ type RoundGame interface {
 }
 
 func NewRegistry() *Registry {
-	return &Registry{games: make(map[string]Game)}
+	return &Registry{games: make(map[string]Game), listings: make(map[string]Listing)}
 }
 
 // Register adds a game; panics on duplicate IDs (programming error at boot).
@@ -94,7 +108,24 @@ func (r *Registry) Register(g Game) {
 	if _, exists := r.games[g.ID()]; exists {
 		panic("game already registered: " + g.ID())
 	}
+	if _, exists := r.listings[g.ID()]; exists {
+		panic("game already registered as listing: " + g.ID())
+	}
 	r.games[g.ID()] = g
+}
+
+// RegisterListing adds a metadata-only entry for a game whose flow has its
+// own endpoints (stateful card games); panics on duplicate IDs at boot.
+func (r *Registry) RegisterListing(l Listing) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.listings[l.ID]; exists {
+		panic("listing already registered: " + l.ID)
+	}
+	if _, exists := r.games[l.ID]; exists {
+		panic("game already registered: " + l.ID)
+	}
+	r.listings[l.ID] = l
 }
 
 // Get resolves a game ID.
@@ -105,7 +136,7 @@ func (r *Registry) Get(id string) (Game, bool) {
 	return g, ok
 }
 
-// List returns all games with stable (sorted) ordering.
+// List returns all instant games with stable (sorted) ordering.
 func (r *Registry) List() []Game {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -118,5 +149,37 @@ func (r *Registry) List() []Game {
 	for _, id := range ids {
 		out = append(out, r.games[id])
 	}
+	return out
+}
+
+// Listings returns every game — instant engines and metadata-only entries —
+// in one sorted list for the games endpoint and the arcade floor.
+func (r *Registry) Listings() []Listing {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]Listing, 0, len(r.games)+len(r.listings))
+	for id, g := range r.games {
+		name := id
+		if d, ok := g.(interface{ DisplayName() string }); ok {
+			name = d.DisplayName()
+		}
+		l := Listing{ID: id, Name: name, TheoreticalRTP: g.TheoreticalRTP(), Kind: "instant"}
+		if p, ok := g.(interface{ Paytable() any }); ok {
+			l.Paytable = p.Paytable()
+			if m, ok := l.Paytable.(map[string]any); ok {
+				if bs, ok := m["betSteps"].([]int64); ok {
+					l.BetSteps = bs
+				}
+			}
+		}
+		out = append(out, l)
+	}
+	for _, l := range r.listings {
+		if l.Kind == "" {
+			l.Kind = "stateful"
+		}
+		out = append(out, l)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }

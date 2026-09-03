@@ -268,7 +268,7 @@ func TestBannedUserBetRejected(t *testing.T) {
 }
 
 // TestUnauthenticatedBetMessageRejected: without a session the upgrade is
-// refused outright � no socket, no message path.
+// refused outright — no socket, no message path.
 func TestUnauthenticatedBetMessageRejected(t *testing.T) {
 	_, _, srv := newTestHub(t, cookieAuth(map[string]Identity{}))
 	hdr := http.Header{}
@@ -277,5 +277,116 @@ func TestUnauthenticatedBetMessageRejected(t *testing.T) {
 		t.Fatal("unauthenticated upgrade accepted")
 	} else if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status = %d", resp.StatusCode)
+	}
+}
+
+// fakeRoomHandler records game actions handed to it.
+type fakeRoomHandler struct {
+	got    []json.RawMessage
+	idents []Identity
+	err    error
+}
+
+func (f *fakeRoomHandler) HandleGameAction(id Identity, payload json.RawMessage) (map[string]any, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.got = append(f.got, payload)
+	f.idents = append(f.idents, id)
+	return map[string]any{"ok": true}, nil
+}
+
+func TestGameActionRoutedToRoomHandler(t *testing.T) {
+	h, _, srv := newTestHub(t, cookieAuth(map[string]Identity{
+		"tok1": {UserID: 1, SessionID: 1, DisplayName: "p1", Role: "player", Status: "active"},
+	}))
+	fh := &fakeRoomHandler{}
+	h.SetRoomHandler("crash-1", fh)
+
+	c := dial(t, srv, "tok1")
+	send(t, c, Message{Type: "join_room", Payload: json.RawMessage(`{"slug":"crash-1"}`)})
+	recv(t, c, 2*time.Second) // room_snapshot
+
+	send(t, c, Message{Type: "game_action", Payload: json.RawMessage(`{"action":"fold"}`)})
+	m := recv(t, c, 2*time.Second)
+	if m.Type != "game_ack" {
+		t.Fatalf("type = %q, want game_ack", m.Type)
+	}
+	if len(fh.got) != 1 || string(fh.got[0]) != `{"action":"fold"}` {
+		t.Fatalf("handler payload = %v", fh.got)
+	}
+	if len(fh.idents) != 1 || fh.idents[0].UserID != 1 {
+		t.Fatalf("handler identity = %v", fh.idents)
+	}
+}
+
+func TestGameActionWithoutRoomHandler(t *testing.T) {
+	h, _, srv := newTestHub(t, cookieAuth(map[string]Identity{
+		"tok1": {UserID: 1, SessionID: 1, DisplayName: "p1", Role: "player", Status: "active"},
+	}))
+	_ = h // no room handler registered
+	c := dial(t, srv, "tok1")
+	send(t, c, Message{Type: "join_room", Payload: json.RawMessage(`{"slug":"crash-1"}`)})
+	recv(t, c, 2*time.Second) // room_snapshot
+
+	send(t, c, Message{Type: "game_action", Payload: json.RawMessage(`{"action":"fold"}`)})
+	m := recv(t, c, 2*time.Second)
+	if m.Type != "error" {
+		t.Fatalf("type = %q, want error", m.Type)
+	}
+	var p struct {
+		Code string `json:"code"`
+	}
+	if json.Unmarshal(m.Payload, &p) != nil || p.Code != "no_game_in_room" {
+		t.Fatalf("code = %q, want no_game_in_room", p.Code)
+	}
+}
+
+func TestGameActionBannedUserRejected(t *testing.T) {
+	h, _, srv := newTestHub(t, cookieAuth(map[string]Identity{
+		"tok1": {UserID: 9, SessionID: 9, DisplayName: "banned", Role: "player", Status: "banned"},
+	}))
+	h.SetRoomHandler("crash-1", &fakeRoomHandler{})
+	c := dial(t, srv, "tok1")
+	send(t, c, Message{Type: "join_room", Payload: json.RawMessage(`{"slug":"crash-1"}`)})
+	recv(t, c, 2*time.Second) // room_snapshot
+
+	send(t, c, Message{Type: "game_action", Payload: json.RawMessage(`{"action":"buy_in"}`)})
+	m := recv(t, c, 2*time.Second)
+	if m.Type != "error" {
+		t.Fatalf("type = %q, want error", m.Type)
+	}
+	var p struct {
+		Code string `json:"code"`
+	}
+	if json.Unmarshal(m.Payload, &p) != nil || p.Code != "status_forbids_betting" {
+		t.Fatalf("code = %q, want status_forbids_betting", p.Code)
+	}
+}
+
+func TestGameActionRequiresRoomAndAction(t *testing.T) {
+	h, _, srv := newTestHub(t, cookieAuth(map[string]Identity{
+		"tok1": {UserID: 1, SessionID: 1, DisplayName: "p1", Role: "player", Status: "active"},
+	}))
+	_ = h
+	c := dial(t, srv, "tok1")
+
+	// No room joined yet.
+	send(t, c, Message{Type: "game_action", Payload: json.RawMessage(`{"action":"fold"}`)})
+	m := recv(t, c, 2*time.Second)
+	var p struct {
+		Code string `json:"code"`
+	}
+	if m.Type != "error" || json.Unmarshal(m.Payload, &p) != nil || p.Code != "not_in_room" {
+		t.Fatalf("want not_in_room error, got %q %s", m.Type, m.Payload)
+	}
+
+	// Joined but missing the action field.
+	send(t, c, Message{Type: "join_room", Payload: json.RawMessage(`{"slug":"crash-1"}`)})
+	recv(t, c, 2*time.Second) // room_snapshot
+	send(t, c, Message{Type: "game_action", Payload: json.RawMessage(`{}`)})
+	m = recv(t, c, 2*time.Second)
+	if m.Type != "error" || json.Unmarshal(m.Payload, &p) != nil || p.Code != "bad_request" {
+		t.Fatalf("want bad_request error, got %q %s", m.Type, m.Payload)
 	}
 }

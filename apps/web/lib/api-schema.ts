@@ -216,6 +216,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/games/blackjack/deal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deal a blackjack hand
+         * @description Server-authoritative, stateful. Shuffles a full deck from the personal
+         *     fair stream (HMAC Fisher-Yates), deals two cards each, debits the
+         *     stake, and records the bet + hand in one transaction. A natural 21
+         *     (player or dealer) resolves and pays inside the same transaction.
+         *     While the hand is active the dealer's hole card is withheld.
+         *
+         *     One active hand per user; an abandoned hand (idle > 5 min)
+         *     auto-stands on the next deal. Idempotent like /play.
+         */
+        post: operations["blackjackDeal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hands/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's in-progress blackjack hand, if any */
+        get: operations["getActiveHand"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hands/{id}/action": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hit, stand, or double the active hand
+         * @description Replays the hand from the fairness triple + action log, applies the
+         *     action, and persists in one transaction. Double debits the extra
+         *     stake; stand / bust / 21 completes the hand: the dealer plays out and
+         *     the payout credits atomically. Retried idempotency keys return the
+         *     current state without drawing again.
+         */
+        post: operations["handAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/bets": {
         parameters: {
             query?: never;
@@ -467,6 +535,12 @@ export interface components {
             id: string;
             name: string;
             theoreticalRtp: number;
+            /**
+             * @description instant = single-call engines; stateful = deal/action flow (blackjack)
+             * @enum {string}
+             */
+            kind?: "instant" | "stateful";
+            betSteps?: number[];
             /** @description Game-specific display data (symbol weights/pays for slots) */
             paytable?: unknown;
         };
@@ -495,6 +569,49 @@ export interface components {
             clientSeed: string;
             /** Format: int64 */
             nonce: number;
+        };
+        BlackjackDealRequest: {
+            /**
+             * Format: int64
+             * @description One of the game's bet steps
+             */
+            betCredits: number;
+            clientSeed?: string;
+            idempotencyKey: string;
+        };
+        BlackjackHand: {
+            /** Format: int64 */
+            handId: number;
+            /** Format: int64 */
+            betId: number;
+            /** @enum {string} */
+            status: "active" | "complete";
+            /** Format: int64 */
+            betCredits: number;
+            /** Format: int64 */
+            payoutCredits: number;
+            /**
+             * @description Present once the hand is complete
+             * @enum {string}
+             */
+            outcome?: "blackjack" | "win" | "push" | "lose" | "bust";
+            /** @description Compact card codes, e.g. "AsKd7c" */
+            playerCards: string;
+            /** @description Up card only while the hand is active; full hand once complete */
+            dealerCards: string;
+            playerTotal: number;
+            /** @description Present once the hand is complete */
+            dealerTotal?: number | null;
+            doubled: boolean;
+            canDouble: boolean;
+            actions: ("hit" | "stand" | "double")[];
+        };
+        HandResponse: {
+            hand: components["schemas"]["BlackjackHand"];
+            /** Format: int64 */
+            balanceCredits: number;
+            fairness: components["schemas"]["FairnessTriple"];
+            replay: boolean;
         };
         FairCurrent: {
             serverSeedHash: string;
@@ -834,6 +951,93 @@ export interface operations {
             400: components["responses"]["Error"];
             402: components["responses"]["Error"];
             403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+        };
+    };
+    blackjackDeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BlackjackDealRequest"];
+            };
+        };
+        responses: {
+            /** @description Hand state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HandResponse"];
+                };
+            };
+            400: components["responses"]["Error"];
+            402: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+        };
+    };
+    getActiveHand: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active hand or null */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        hand?: components["schemas"]["BlackjackHand"] | null;
+                    };
+                };
+            };
+        };
+    };
+    handAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    action: "hit" | "stand" | "double";
+                    idempotencyKey: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Hand state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HandResponse"];
+                };
+            };
+            400: components["responses"]["Error"];
+            402: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             429: components["responses"]["Error"];
         };

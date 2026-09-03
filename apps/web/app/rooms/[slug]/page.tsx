@@ -1,4 +1,4 @@
-import CrashRoom from "@/components/CrashRoom";
+import RoomGate from "@/components/RoomGate";
 
 export default async function RoomPage({
   params,
@@ -6,5 +6,5 @@ export default async function RoomPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  return <CrashRoom slug={slug} />;
+  return <RoomGate slug={slug} />;
 }

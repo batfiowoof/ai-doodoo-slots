@@ -46,6 +46,35 @@ func NewIntake(r *Runner, persist Persister, clk clock.Clock, b bus.Bus, logger 
 	return &Intake{runner: r, persist: persist, clk: clk, bus: b, logger: logger}
 }
 
+// HandleGameAction adapts socket bet messages to room-handler routing: the
+// hub injects the wire verb ("place_bet"/"cash_out") as the action, so each
+// room's intake enforces its own limits and rounds.
+func (i *Intake) HandleGameAction(id ws.Identity, payload json.RawMessage) (map[string]any, error) {
+	var p struct {
+		Action         string  `json:"action"`
+		Credits        int64   `json:"credits"`
+		AutoCashout    float64 `json:"autoCashout"`
+		IdempotencyKey string  `json:"idempotencyKey"`
+	}
+	if err := json.Unmarshal(payload, &p); err != nil || p.Action == "" {
+		return nil, coded("bad_request", fmt.Errorf("malformed bet message"))
+	}
+	if id.Status != "active" {
+		return nil, codedBet(ErrForbiddenStatus)
+	}
+	switch p.Action {
+	case "place_bet":
+		hundredths := int64(p.AutoCashout * 100)
+		return i.PlaceBet(id, p.Credits, hundredths, p.IdempotencyKey)
+	case "cash_out":
+		return i.CashOut(id)
+	default:
+		return nil, coded("bad_request", fmt.Errorf("unknown action %q", p.Action))
+	}
+}
+
+var _ ws.RoomHandler = (*Intake)(nil)
+
 // PlaceBet validates and debits a stake during betting_open. The wallet
 // debit and the bet row land in one transaction; a failure there removes
 // the in-memory reservation.

@@ -53,10 +53,15 @@ export default function HistoryTable() {
     <div>
       {rows.map((bet) => {
         const outcome = bet.outcome;
-        const lines = outcome?.winningLines?.length ?? 0;
-        const scatter = outcome?.scatterWins?.length ?? 0;
-        const result =
-          outcome?.grid == null
+        const lines = (outcome && "winningLines" in outcome ? outcome.winningLines : null)?.length ?? 0;
+        const scatter = (outcome && "scatterWins" in outcome ? outcome.scatterWins : null)?.length ?? 0;
+        const bjOutcome =
+          bet.gameId === "blackjack" && outcome && "outcome" in outcome && outcome.outcome
+            ? outcome.outcome
+            : null;
+        const result = bjOutcome
+          ? bjOutcome
+          : outcome && "grid" in outcome && outcome.grid == null
             ? "—"
             : bet.payoutCredits > 0
               ? scatter > 0

@@ -8,10 +8,10 @@ import (
 
 type stubGame struct{ id string }
 
-func (s *stubGame) ID() string                                { return s.id }
-func (s *stubGame) ValidateBet(credits int64) error           { return nil }
+func (s *stubGame) ID() string                                    { return s.id }
+func (s *stubGame) ValidateBet(credits int64) error               { return nil }
 func (s *stubGame) Play(_ *fair.Stream, _ int64) (Outcome, error) { return Outcome{}, nil }
-func (s *stubGame) TheoreticalRTP() float64                   { return 0.98 }
+func (s *stubGame) TheoreticalRTP() float64                       { return 0.98 }
 
 func TestRegistry(t *testing.T) {
 	r := NewRegistry()

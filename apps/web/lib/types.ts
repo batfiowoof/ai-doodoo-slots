@@ -27,7 +27,30 @@ export interface GameInfo {
   id: string;
   name: string;
   theoreticalRtp: number;
+  kind?: "instant" | "stateful";
+  betSteps?: number[] | null;
   paytable?: SlotsPaytable | null;
+}
+
+/** Blackjack hand view; dealerCards hides the hole card while active. */
+export type BlackjackHandView = components["schemas"]["BlackjackHand"];
+
+export interface HandResponse {
+  hand: BlackjackHandView;
+  balanceCredits: number;
+  fairness: FairCurrent;
+  replay: boolean;
+}
+
+export interface BlackjackOutcome {
+  status?: string;
+  outcome?: string;
+  playerCards?: string;
+  dealerCards?: string;
+  playerTotal?: number;
+  dealerTotal?: number | null;
+  betCredits?: number;
+  payoutCredits?: number;
 }
 
 export interface ScatterWin {
@@ -50,7 +73,7 @@ export interface BetRow {
   payoutCredits: number;
   clientSeed: string;
   nonce: number;
-  outcome?: SlotsOutcome | null;
+  outcome?: SlotsOutcome | BlackjackOutcome | null;
   createdAt: string;
 }
 

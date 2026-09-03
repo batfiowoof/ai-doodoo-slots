@@ -22,7 +22,7 @@ import (
 
 // SymbolCfg is one reel symbol: weight and pays by match count.
 type SymbolCfg struct {
-	Name   string       `json:"name"`
+	Name   string        `json:"name"`
 	Weight int64         `json:"weight"`
 	Pays   map[int]int64 `json:"pays"` // match count -> bet multiplier
 }

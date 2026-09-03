@@ -137,3 +137,68 @@ export async function deriveGrid(input: VerifyInput): Promise<VerifyResult> {
 
   return { grid, winningLines, payoutMultiplier, u32s };
 }
+
+// ---- Blackjack deck derivation ----
+//
+// The deck is a fresh 52-card deck in canonical order (suit s,h,d,c; rank
+// 2..A within each suit) shuffled once at deal time by Fisher-Yates driven
+// by the same HMAC stream. To pick a uniform j in [0, n): draw u32 v,
+// accept when v < 2^32 - (2^32 mod n), else draw again; j = v mod n. The
+// shuffled array IS the draw order: indexes 0,1 = player cards, 2,3 =
+// dealer cards (3 is the hole), then hits/dealer draws take 4,5,6…
+
+const BJ_SUITS = ["s", "h", "d", "c"] as const;
+const BJ_RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"] as const;
+
+export interface BJVerifyResult {
+  deck: string[];
+  u32s: number[];
+}
+
+export async function deriveBlackjackDeck(
+  input: VerifyInput,
+): Promise<BJVerifyResult> {
+  const key = hexToBytes(input.serverSeedHex);
+  if (key.length !== 32) {
+    throw new Error(
+      `server seed must be 32 bytes (64 hex chars), got ${key.length}`,
+    );
+  }
+
+  const base = `${input.clientSeed}:${input.nonce}`;
+  const u32s: number[] = [];
+  let buf: number[] = [];
+  let blockIdx = 0;
+
+  const nextU32 = async (): Promise<number> => {
+    while (buf.length < 4) {
+      const msg = blockIdx === 0 ? base : `${base}:${blockIdx}`;
+      const block = await hmacSha256(key, msg);
+      buf.push(...block);
+      blockIdx += 1;
+    }
+    const u =
+      ((buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3]) >>> 0;
+    buf = buf.slice(4);
+    u32s.push(u);
+    return u;
+  };
+
+  const deck: string[] = [];
+  for (const suit of BJ_SUITS) {
+    for (const rank of BJ_RANKS) deck.push(rank + suit);
+  }
+
+  for (let i = deck.length - 1; i > 0; i--) {
+    const n = i + 1;
+    const threshold = 2 ** 32 - (2 ** 32 % n);
+    // Rejection sampling: values at or above the largest multiple of n
+    // that fits in 32 bits are redrawn — the exact Go rule.
+    let v = await nextU32();
+    while (v >= threshold) v = await nextU32();
+    const j = v % n;
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+
+  return { deck, u32s };
+}

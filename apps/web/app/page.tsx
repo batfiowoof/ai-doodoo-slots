@@ -260,7 +260,7 @@ export default function GameMenu() {
                 color: "#8878b8",
               }}
             >
-              LIVE CRASH ROOMS
+              LIVE TABLES
             </div>
           </div>
 
