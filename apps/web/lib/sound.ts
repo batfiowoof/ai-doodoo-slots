@@ -263,6 +263,93 @@ class SoundManager {
     );
     this.tone(65, 1.2, { type: "sawtooth", gain: 0.07, delay: 0.4, slideTo: 130 });
   }
+
+  /**
+   * Card slide: a band-passed noise sweep that falls as the card leaves the
+   * hand, ending in a soft felt landing. The signature deal sound.
+   */
+  dealCard(delay = 0): void {
+    const ctx = this.ensure();
+    if (!ctx || !this.master) return;
+    if (!this.noiseBuf) {
+      const len = Math.floor(ctx.sampleRate * 1.2);
+      this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = this.noiseBuf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+    const t0 = ctx.currentTime + delay;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    src.loop = true;
+    const f = ctx.createBiquadFilter();
+    f.type = "bandpass";
+    f.Q.value = 1.6;
+    f.frequency.setValueAtTime(3200, t0);
+    f.frequency.exponentialRampToValueAtTime(650, t0 + 0.11);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.14, t0 + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.13);
+    src.connect(f);
+    f.connect(g);
+    g.connect(this.master);
+    src.start(t0);
+    src.stop(t0 + 0.15);
+    this.tone(2100, 0.025, { gain: 0.02, delay: delay + 0.1 });
+  }
+
+  /** Hole-card flip: a double snap — wrist flick then card slap on felt. */
+  flipCard(delay = 0): void {
+    this.hit(0.03, { gain: 0.1, freq: 2500, q: 3, delay });
+    this.hit(0.05, { gain: 0.13, freq: 1000, q: 1.5, delay: delay + 0.055 });
+    this.tone(660, 0.05, { type: "triangle", gain: 0.04, delay: delay + 0.055 });
+  }
+
+  /** One ceramic chip clink: two detuned square ticks + a glassy noise kiss. */
+  chipClink(delay = 0): void {
+    this.tone(1900, 0.04, { type: "square", gain: 0.04, delay });
+    this.tone(2470, 0.05, { type: "square", gain: 0.028, delay: delay + 0.014 });
+    this.hit(0.025, { gain: 0.05, freq: 3900, q: 2, delay });
+  }
+
+  /** Chips tossed to the pot: a short descending run of clinks + a slide. */
+  chipToss(n = 3, delay = 0): void {
+    for (let i = 0; i < n; i++) {
+      this.chipClink(delay + i * 0.045 + (i % 2) * 0.008);
+    }
+    this.hit(0.09, { gain: 0.05, freq: 1300, q: 1, delay: delay + n * 0.045 });
+  }
+
+  /** Riffle shuffle: alternating wing flaps building to a slap. */
+  shuffle(delay = 0): void {
+    for (let i = 0; i < 9; i++) {
+      this.hit(0.035, {
+        gain: 0.07 + i * 0.008,
+        freq: 1900 + (i % 3) * 340,
+        q: 4,
+        delay: delay + i * 0.024,
+      });
+    }
+    this.hit(0.07, { gain: 0.14, freq: 1100, q: 1.2, delay: delay + 0.23 });
+    this.tone(140, 0.08, { type: "triangle", gain: 0.07, delay: delay + 0.23 });
+  }
+
+  /** Your turn: a rising two-blip that cuts through the ambient noise. */
+  turnAlert(): void {
+    this.tone(880, 0.09, { type: "triangle", gain: 0.06 });
+    this.tone(1320, 0.14, { type: "triangle", gain: 0.07, delay: 0.1 });
+  }
+
+  /** Cards tossed into the muck: a low short swish. */
+  fold(delay = 0): void {
+    this.hit(0.09, { gain: 0.08, freq: 720, q: 0.9, delay });
+  }
+
+  /** Push: two level sines, neither up nor down. */
+  push(): void {
+    this.tone(523, 0.14, { type: "sine", gain: 0.05 });
+    this.tone(523, 0.14, { type: "sine", gain: 0.05, delay: 0.17 });
+  }
 }
 
 // Module singleton.

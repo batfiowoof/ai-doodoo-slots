@@ -15,4 +15,7 @@ COPY --from=build /out/api /usr/local/bin/api
 COPY --from=build /out/migrate /usr/local/bin/migrate
 COPY --from=build /out/gameserver /usr/local/bin/gameserver
 EXPOSE 8080 8082
-ENTRYPOINT ["api"]
+# CMD, not ENTRYPOINT: compose overrides the binary per service
+# (api runs `sh -c "migrate up && api"`, gameserver runs `gameserver`).
+# As ENTRYPOINT this silently turned every service into the stateless api.
+CMD ["api"]

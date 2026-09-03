@@ -7,7 +7,8 @@ import PixelSymbol from "@/components/PixelSymbol";
 import { NavLink } from "@/components/NavButton";
 import { sound } from "@/lib/sound";
 import { useDeposit, useGames, useSession } from "@/lib/api";
-import { useLobby } from "@/lib/useLobby";
+import { useLobby, type LobbyRoom } from "@/lib/useLobby";
+import PixelCard from "@/components/PixelCard";
 import type { GameInfo } from "@/lib/types";
 
 const TRACK_W = 1220;
@@ -277,7 +278,7 @@ export default function GameMenu() {
               }}
             >
               {lobby.rooms.map((r) => (
-                <CrashCabinet key={r.slug} room={r} />
+                <LiveTableCard key={r.slug} room={r} />
               ))}
             </div>
           )}
@@ -332,9 +333,248 @@ export default function GameMenu() {
   );
 }
 
-function CrashCabinet({ room }: { room: LobbyRoomInfo }) {
+// ---------- live tables ----------
+
+// Shared card chrome: every live-table card lifts and glows on hover.
+const CARD_BASE: React.CSSProperties = {
+  width: 376,
+  boxSizing: "border-box",
+  flex: "0 0 376px",
+  display: "block",
+  padding: 20,
+  background: "linear-gradient(#0d0619,#170c2b)",
+  border: "2px solid #35205c",
+  cursor: "pointer",
+  color: "inherit",
+  textDecoration: "none",
+  transition: "transform 160ms ease-out, box-shadow 160ms ease-out, border-color 160ms ease-out",
+};
+
+function cardHover(accent: string) {
+  return {
+    onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
+      e.currentTarget.style.transform = "translateY(-5px)";
+      e.currentTarget.style.borderColor = accent;
+      e.currentTarget.style.boxShadow = `0 0 44px ${accent}59`;
+    },
+    onMouseLeave: (e: React.MouseEvent<HTMLElement>) => {
+      e.currentTarget.style.transform = "none";
+      e.currentTarget.style.borderColor = "#35205c";
+      e.currentTarget.style.boxShadow = "none";
+    },
+  };
+}
+
+function CardHeader({ name, accent, right }: { name: string; accent: string; right: React.ReactNode }) {
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+      <span
+        style={{
+          fontFamily: "var(--font-display)",
+          fontSize: 17,
+          letterSpacing: 2,
+          color: accent,
+          textShadow: `0 0 10px ${accent}80`,
+        }}
+      >
+        {name.toUpperCase()}
+      </span>
+      <span style={{ fontFamily: "var(--font-body)", fontSize: 19, color: "#8878b8" }}>{right}</span>
+    </div>
+  );
+}
+
+function StateBadge({ state }: { state: string }) {
+  const live = state !== "waiting" && state !== "" && state !== "idle";
+  const showdown = state === "showdown";
+  const color = showdown ? "#ff2d95" : live ? "#22e8ff" : "#8878b8";
+  return (
+    <span
+      style={{
+        fontFamily: "var(--font-display)",
+        fontSize: 11,
+        letterSpacing: 2,
+        padding: "4px 10px",
+        border: `1px solid ${color}`,
+        color,
+        textShadow: live ? `0 0 10px ${color}` : "none",
+        animation: live ? "hintBlink 1.6s steps(1) infinite" : undefined,
+      }}
+    >
+      {state === "" ? "…" : state.toUpperCase()}
+    </span>
+  );
+}
+
+/** Dispatches a lobby room to its game's card. */
+function LiveTableCard({ room }: { room: LobbyRoom }) {
+  if (room.gameId === "holdem") return <PokerTableCard room={room} />;
+  return <CrashTableCard room={room} />;
+}
+
+/** Hold'em room card: a miniature oval table with live seats and phase. */
+function PokerTableCard({ room }: { room: LobbyRoom }) {
+  const live = room.state !== undefined && room.state !== "waiting";
+  const seated = Math.min(room.playerCount, room.capacity);
+  const bb = room.minBet;
+  const sb = bb / 2;
+
+  return (
+    <Link
+      href={`/rooms/${room.slug}`}
+      onClick={() => {
+        sound.unlock();
+        sound.chipClink();
+      }}
+      style={{
+        ...CARD_BASE,
+        border: `2px solid ${live ? "#22e8ff" : "#35205c"}`,
+        boxShadow: live ? "0 0 34px rgba(34,232,255,.3)" : "0 0 24px rgba(157,77,255,.15)",
+      }}
+      {...cardHover("#22e8ff")}
+    >
+      <CardHeader
+        name={room.name}
+        accent={live ? "#22e8ff" : "#cfc4f2"}
+        right={`${room.playerCount}/${room.capacity} SEATED`}
+      />
+
+      {/* Miniature table */}
+      <div style={{ marginTop: 14, position: "relative", height: 132 }}>
+        {/* Wood rim */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: "50%",
+            background: "linear-gradient(160deg, #7a4c26, #5c3a1e 45%, #38200e)",
+            boxShadow: "0 10px 26px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,200,140,.35)",
+          }}
+        />
+        {/* Felt */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 7,
+            borderRadius: "50%",
+            background: "linear-gradient(#15503a, #0b352a)",
+            boxShadow: "inset 0 0 0 2px rgba(34,232,255,.3), inset 0 0 40px rgba(0,0,0,.5)",
+          }}
+        />
+        {/* Dashed inlay */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 14,
+            borderRadius: "50%",
+            border: "1px dashed rgba(159,216,192,.3)",
+          }}
+        />
+        {/* Board slots */}
+        <div
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: "44%",
+            transform: "translate(-50%, -50%)",
+            display: "flex",
+            gap: 5,
+          }}
+        >
+          {[0, 1, 2, 3, 4].map((i) => (
+            <span
+              key={i}
+              style={{
+                width: 15,
+                height: 21,
+                border: "1px dashed rgba(159,216,192,.4)",
+                background: "rgba(0,0,0,.22)",
+              }}
+            />
+          ))}
+        </div>
+        {/* Held hole cards at the near edge */}
+        <div
+          style={{
+            position: "absolute",
+            left: "50%",
+            bottom: -8,
+            transform: "translateX(-50%)",
+            display: "flex",
+            filter: "drop-shadow(0 4px 5px rgba(0,0,0,.5))",
+          }}
+        >
+          <span style={{ transform: "rotate(-10deg)" }}>
+            <PixelCard code="back" scale={1} />
+          </span>
+          <span style={{ transform: "rotate(10deg)", marginLeft: -10 }}>
+            <PixelCard code="back" scale={1} />
+          </span>
+        </div>
+        {/* Seat dots on the far arc: filled = seated */}
+        {Array.from({ length: room.capacity }, (_, i) => {
+          const n = Math.max(room.capacity, 1);
+          const theta = Math.PI - ((i + 1) * Math.PI) / (n + 1);
+          const x = 50 + 44 * Math.cos(theta);
+          const y = 46 - 36 * Math.sin(theta);
+          const taken = i < seated;
+          return (
+            <span
+              key={i}
+              title={`seat ${i + 1}`}
+              style={{
+                position: "absolute",
+                left: `${x}%`,
+                top: `${y}%`,
+                transform: "translate(-50%, -50%)",
+                width: 9,
+                height: 9,
+                borderRadius: "50%",
+                background: taken ? "#5fe08a" : "transparent",
+                border: taken ? "none" : "1px dashed rgba(136,120,184,.7)",
+                boxShadow: taken ? "0 0 8px rgba(95,224,138,.8)" : "none",
+              }}
+            />
+          );
+        })}
+      </div>
+
+      <div
+        style={{
+          marginTop: 16,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <span style={{ fontFamily: "var(--font-body)", fontSize: 19, color: "#ff8a1f" }}>
+          BLINDS {sb}/{bb}
+        </span>
+        <StateBadge state={room.state ?? "…"} />
+      </div>
+    </Link>
+  );
+}
+
+/** Crash room card: live multiplier, recent-crash sparkline, bet window. */
+function CrashTableCard({ room }: { room: LobbyRoom }) {
   const live = room.state === "running";
   const open = room.state === "betting_open";
+  const accent = live ? "#22e8ff" : open ? "#5fe08a" : "#cfc4f2";
+  const crashes = (room.recentCrashes ?? []).slice(-10);
+  const last = crashes[crashes.length - 1];
+
+  // Sparkline of recent crashes, log-ish scaled so 1.0× sits low.
+  const w = 316;
+  const h = 66;
+  const max = Math.max(2, ...crashes);
+  const pts = crashes.map(
+    (m, i) =>
+      `${(i / Math.max(crashes.length - 1, 1)) * (w - 8) + 4},${
+        h - 5 - (Math.log(m + 0.2) / Math.log(max + 0.2)) * (h - 12)
+      }`,
+  );
+
   return (
     <Link
       href={`/rooms/${room.slug}`}
@@ -343,80 +583,136 @@ function CrashCabinet({ room }: { room: LobbyRoomInfo }) {
         sound.click();
       }}
       style={{
-        width: 376,
-        boxSizing: "border-box",
-        flex: "0 0 376px",
-        padding: 20,
-        background: "linear-gradient(#0d0619,#170c2b)",
-        border: `2px solid ${live ? "#22e8ff" : "#35205c"}`,
+        ...CARD_BASE,
+        border: `2px solid ${live ? "#22e8ff" : open ? "#1c5f6b" : "#35205c"}`,
         boxShadow: live ? "0 0 34px rgba(34,232,255,.3)" : "0 0 24px rgba(157,77,255,.15)",
-        cursor: "pointer",
       }}
+      {...cardHover(accent)}
     >
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-        <span
-          style={{
-            fontFamily: "var(--font-display)",
-            fontSize: 17,
-            letterSpacing: 2,
-            color: open ? "#5fe08a" : live ? "#22e8ff" : "#cfc4f2",
-          }}
-        >
-          {room.name.toUpperCase()}
-        </span>
-        <span style={{ fontFamily: "var(--font-body)", fontSize: 18, color: "#8878b8" }}>
-          {room.playerCount} IN
-        </span>
-      </div>
-      <div style={{ marginTop: 6, fontFamily: "var(--font-body)", fontSize: 17, color: "#8878b8" }}>
-        BETS {room.minBet}–{room.maxBet.toLocaleString()} · {room.state?.toUpperCase() ?? "…"}
-        {live && room.multiplier ? ` · ${room.multiplier.toFixed(2)}×` : ""}
-      </div>
+      <CardHeader name={room.name} accent={accent} right={`${room.playerCount} IN`} />
+
+      {/* Multiplier headline / bet window */}
       <div
         style={{
           marginTop: 12,
-          padding: 10,
-          background: "#06040d",
-          boxShadow: "inset 0 0 0 1px #241640",
+          height: 58,
           display: "flex",
-          gap: 6,
-          justifyContent: "center",
-          minHeight: 30,
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 6px",
         }}
       >
-        {(room.recentCrashes ?? []).slice(0, 6).map((m, i) => (
-          <span
-            key={i}
+        {live && room.multiplier ? (
+          <>
+            <span
+              style={{
+                fontFamily: "var(--font-body)",
+                fontSize: 52,
+                lineHeight: 1,
+                color: "#ff8a1f",
+                textShadow: "0 0 18px rgba(255,138,31,.8)",
+              }}
+            >
+              {room.multiplier.toFixed(2)}×
+            </span>
+            <StateBadge state="in flight" />
+          </>
+        ) : open ? (
+          <>
+            <span
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: 20,
+                letterSpacing: 3,
+                color: "#5fe08a",
+                textShadow: "0 0 14px rgba(95,224,138,.7)",
+                animation: "hintBlink 1.2s steps(1) infinite",
+              }}
+            >
+              PLACE YOUR BETS
+            </span>
+            <StateBadge state="bets open" />
+          </>
+        ) : (
+          <>
+            <span
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: 18,
+                letterSpacing: 3,
+                color: "#5c4f80",
+              }}
+            >
+              STARTING SOON
+            </span>
+            <StateBadge state="idle" />
+          </>
+        )}
+      </div>
+
+      {/* Recent crashes sparkline */}
+      <div
+        style={{
+          marginTop: 10,
+          padding: 8,
+          background: "#06040d",
+          boxShadow: "inset 0 0 0 1px #241640",
+        }}
+      >
+        {crashes.length >= 2 ? (
+          <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+            <line x1="4" y1={h - 5 - (Math.log(1.2) / Math.log(max + 0.2)) * (h - 12)} x2={w - 4} y2={h - 5 - (Math.log(1.2) / Math.log(max + 0.2)) * (h - 12)} stroke="#35205c" strokeDasharray="3 5" strokeWidth="1" />
+            <polyline
+              points={pts.join(" ")}
+              fill="none"
+              stroke="#5fe08a"
+              strokeWidth="2"
+              style={{ filter: "drop-shadow(0 0 4px rgba(95,224,138,.9))" }}
+            />
+            {last !== undefined && pts.length > 0 && (
+              <circle
+                cx={w - 4}
+                cy={h - 5 - (Math.log(last + 0.2) / Math.log(max + 0.2)) * (h - 12)}
+                r="3.5"
+                fill={last >= 2 ? "#5fe08a" : "#f2643d"}
+                style={{ filter: "drop-shadow(0 0 5px currentColor)" }}
+              />
+            )}
+          </svg>
+        ) : (
+          <div
             style={{
+              height: h,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
               fontFamily: "var(--font-body)",
-              fontSize: 15,
-              padding: "0 6px",
-              border: `1px solid ${m >= 2 ? "#5fe08a" : m >= 1.3 ? "#6b5f9e" : "#8c3b2e"}`,
-              color: m >= 2 ? "#5fe08a" : m >= 1.3 ? "#8878b8" : "#f2643d",
+              fontSize: 16,
+              color: "#5c4f80",
             }}
           >
-            {m.toFixed(2)}×
-          </span>
-        ))}
-        {(room.recentCrashes ?? []).length === 0 && (
-          <span style={{ fontFamily: "var(--font-body)", fontSize: 15, color: "#5c4f80" }}>
             FIRST ROUND SOON
-          </span>
+          </div>
         )}
+      </div>
+
+      <div
+        style={{
+          marginTop: 14,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <span style={{ fontFamily: "var(--font-body)", fontSize: 19, color: "#ff8a1f" }}>
+          BETS {room.minBet}–{room.maxBet.toLocaleString()}
+        </span>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: 12, letterSpacing: 2, color: "#ff2d95" }}>
+          ENTER ▸
+        </span>
       </div>
     </Link>
   );
-}
-
-interface LobbyRoomInfo {
-  slug: string;
-  name: string;
-  minBet: number;
-  maxBet: number;
-  playerCount: number;
-  state?: string;
-  multiplier?: number;
-  recentCrashes?: number[];
 }
 
 function MachineCard({ game }: { game: GameInfo }) {

@@ -30,11 +30,15 @@ interface RoomSnapshot {
   } | null;
 }
 
+// SSR-safe: module scope also evaluates on the server, where `location`
+// does not exist. The browser default points the dev server at the API.
 const WS_URL =
-  process.env.NEXT_PUBLIC_WS_URL ??
-  (typeof location !== "undefined" && location.port === "3000"
+  typeof location === "undefined"
     ? "ws://localhost:8080/api/v1/ws"
-    : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/v1/ws`);
+    : process.env.NEXT_PUBLIC_WS_URL ??
+      (location.port === "3000"
+        ? "ws://localhost:8080/api/v1/ws"
+        : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/v1/ws`);
 
 const BET_STEPS = [5, 10, 25, 50, 100];
 
@@ -95,11 +99,13 @@ export default function CrashRoom({ slug }: { slug: string }) {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (wsRef.current !== ws) return; // stale socket from a previous effect run
         setConnected(true);
         // Full state snapshot on join AND reconnect.
         ws.send(JSON.stringify({ type: "join_room", payload: { slug } }));
       };
       ws.onclose = () => {
+        if (wsRef.current !== ws) return;
         setConnected(false);
         if (!closed) retry = window.setTimeout(connect, 1000);
       };

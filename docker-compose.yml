@@ -80,6 +80,8 @@ services:
     environment:
       # Same-origin BFF inside the compose network.
       API_URL: http://api:8080
+      # Realtime surface lives on the gameserver, not the stateless API.
+      NEXT_PUBLIC_WS_URL: ws://localhost:8082/api/v1/ws
       KEYCLOAK_ISSUER: http://localhost:8081/realms/retro-casino
       KEYCLOAK_CLIENT_ID: web
       # Internal overrides: the browser uses the public URL; the server

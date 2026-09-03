@@ -515,7 +515,12 @@ func (r *Runner) publish(evType string, payload map[string]any) {
 }
 
 // LiveState renders the room's live snapshot for HTTP deep links and lobby
-// summaries (masked: no hole cards).
+// summaries (masked: no hole cards). The poker view keys its lifecycle as
+// "phase"; lobby consumers read "state", so both are provided.
 func (r *Runner) LiveState() map[string]any {
-	return r.viewFor(0)
+	view := r.viewFor(0)
+	if phase, ok := view["phase"].(string); ok {
+		view["state"] = phase
+	}
+	return view
 }
