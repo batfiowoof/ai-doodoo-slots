@@ -80,15 +80,12 @@ interface RoomInfo {
   capacity: number;
 }
 
-// SSR-safe: module scope also evaluates on the server, where `location`
-// does not exist. The browser default points the dev server at the API.
-const WS_URL =
-  typeof location === "undefined"
+// Resolved lazily: module scope runs during SSR where `location` is absent.
+const wsUrl = () =>
+  process.env.NEXT_PUBLIC_WS_URL ??
+  (typeof location !== "undefined" && location.port === "3000"
     ? "ws://localhost:8080/api/v1/ws"
-    : process.env.NEXT_PUBLIC_WS_URL ??
-      (location.port === "3000"
-        ? "ws://localhost:8080/api/v1/ws"
-        : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/v1/ws`);
+    : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/v1/ws`);
 
 const PHASE_LABELS: Record<string, string> = {
   waiting: "WAITING FOR PLAYERS",
@@ -165,7 +162,7 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
 
     const connect = () => {
       if (closed) return;
-      const ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(wsUrl());
       wsRef.current = ws;
 
       ws.onopen = () => {

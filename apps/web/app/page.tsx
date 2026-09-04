@@ -556,25 +556,16 @@ function PokerTableCard({ room }: { room: LobbyRoom }) {
   );
 }
 
-/** Crash room card: live multiplier, recent-crash sparkline, bet window. */
+/** Crash room card: arcade cabinet with a live flight viewfinder. */
 function CrashTableCard({ room }: { room: LobbyRoom }) {
   const live = room.state === "running";
   const open = room.state === "betting_open";
-  const accent = live ? "#22e8ff" : open ? "#5fe08a" : "#cfc4f2";
-  const crashes = (room.recentCrashes ?? []).slice(-10);
-  const last = crashes[crashes.length - 1];
-
-  // Sparkline of recent crashes, log-ish scaled so 1.0× sits low.
-  const w = 316;
-  const h = 66;
-  const max = Math.max(2, ...crashes);
-  const pts = crashes.map(
-    (m, i) =>
-      `${(i / Math.max(crashes.length - 1, 1)) * (w - 8) + 4},${
-        h - 5 - (Math.log(m + 0.2) / Math.log(max + 0.2)) * (h - 12)
-      }`,
-  );
-
+  const m = room.multiplier ?? 1;
+  const glow = live
+    ? tierGlow(m)
+    : open
+      ? "rgba(95,224,138,.35)"
+      : "rgba(157,77,255,.15)";
   return (
     <Link
       href={`/rooms/${room.slug}`}
@@ -584,137 +575,150 @@ function CrashTableCard({ room }: { room: LobbyRoom }) {
       }}
       style={{
         ...CARD_BASE,
-        border: `2px solid ${live ? "#22e8ff" : open ? "#1c5f6b" : "#35205c"}`,
-        boxShadow: live ? "0 0 34px rgba(34,232,255,.3)" : "0 0 24px rgba(157,77,255,.15)",
+        padding: 16,
+        border: `2px solid ${live ? "#22e8ff" : open ? "#5fe08a" : "#35205c"}`,
+        boxShadow: `0 0 30px ${glow}`,
       }}
-      {...cardHover(accent)}
+      {...cardHover(tierGlow(m))}
     >
-      <CardHeader name={room.name} accent={accent} right={`${room.playerCount} IN`} />
-
-      {/* Multiplier headline / bet window */}
-      <div
-        style={{
-          marginTop: 12,
-          height: 58,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "0 6px",
-        }}
-      >
-        {live && room.multiplier ? (
-          <>
-            <span
-              style={{
-                fontFamily: "var(--font-body)",
-                fontSize: 52,
-                lineHeight: 1,
-                color: "#ff8a1f",
-                textShadow: "0 0 18px rgba(255,138,31,.8)",
-              }}
-            >
-              {room.multiplier.toFixed(2)}×
-            </span>
-            <StateBadge state="in flight" />
-          </>
-        ) : open ? (
-          <>
-            <span
-              style={{
-                fontFamily: "var(--font-display)",
-                fontSize: 20,
-                letterSpacing: 3,
-                color: "#5fe08a",
-                textShadow: "0 0 14px rgba(95,224,138,.7)",
-                animation: "hintBlink 1.2s steps(1) infinite",
-              }}
-            >
-              PLACE YOUR BETS
-            </span>
-            <StateBadge state="bets open" />
-          </>
-        ) : (
-          <>
-            <span
-              style={{
-                fontFamily: "var(--font-display)",
-                fontSize: 18,
-                letterSpacing: 3,
-                color: "#5c4f80",
-              }}
-            >
-              STARTING SOON
-            </span>
-            <StateBadge state="idle" />
-          </>
-        )}
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+        <span
+          style={{
+            fontFamily: "var(--font-display)",
+            fontSize: 17,
+            letterSpacing: 2,
+            color: open ? "#5fe08a" : live ? "#22e8ff" : "#cfc4f2",
+          }}
+        >
+          {room.name.toUpperCase()}
+        </span>
+        <span style={{ fontFamily: "var(--font-body)", fontSize: 18, color: "#8878b8" }}>
+          {room.playerCount} IN
+        </span>
       </div>
 
-      {/* Recent crashes sparkline */}
+      {/* viewfinder: mini starfield + ship */}
       <div
         style={{
           marginTop: 10,
-          padding: 8,
+          position: "relative",
+          height: 108,
           background: "#06040d",
           boxShadow: "inset 0 0 0 1px #241640",
+          overflow: "hidden",
+          backgroundImage: [
+            "radial-gradient(1px 1px at 12% 28%, rgba(236,230,255,.9), transparent)",
+            "radial-gradient(1px 1px at 34% 68%, rgba(34,232,255,.8), transparent)",
+            "radial-gradient(2px 2px at 58% 22%, rgba(236,230,255,.75), transparent)",
+            "radial-gradient(1px 1px at 72% 58%, rgba(255,177,92,.8), transparent)",
+            "radial-gradient(1px 1px at 88% 34%, rgba(236,230,255,.85), transparent)",
+            "radial-gradient(2px 2px at 46% 84%, rgba(255,45,149,.5), transparent)",
+            "radial-gradient(1px 1px at 24% 88%, rgba(236,230,255,.6), transparent)",
+          ].join(","),
         }}
       >
-        {crashes.length >= 2 ? (
-          <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-            <line x1="4" y1={h - 5 - (Math.log(1.2) / Math.log(max + 0.2)) * (h - 12)} x2={w - 4} y2={h - 5 - (Math.log(1.2) / Math.log(max + 0.2)) * (h - 12)} stroke="#35205c" strokeDasharray="3 5" strokeWidth="1" />
-            <polyline
-              points={pts.join(" ")}
-              fill="none"
-              stroke="#5fe08a"
-              strokeWidth="2"
-              style={{ filter: "drop-shadow(0 0 4px rgba(95,224,138,.9))" }}
-            />
-            {last !== undefined && pts.length > 0 && (
-              <circle
-                cx={w - 4}
-                cy={h - 5 - (Math.log(last + 0.2) / Math.log(max + 0.2)) * (h - 12)}
-                r="3.5"
-                fill={last >= 2 ? "#5fe08a" : "#f2643d"}
-                style={{ filter: "drop-shadow(0 0 5px currentColor)" }}
-              />
-            )}
-          </svg>
-        ) : (
-          <div
+        <div
+          style={{
+            position: "absolute",
+            right: 18,
+            top: 14,
+            width: 54,
+            height: 27,
+            background: "radial-gradient(circle at 50% 50%, rgba(157,77,255,.5), rgba(157,77,255,0) 70%)",
+            borderRadius: "50%",
+          }}
+        />
+        <img
+          src={`/sprites/space/${live ? "flight-tilt" : "flight-1"}.png`}
+          alt=""
+          className="pixelated"
+          style={{
+            position: "absolute",
+            left: live ? 42 : 34,
+            bottom: 16,
+            height: live ? 74 : 52,
+            animation: live ? "shipBob 1.1s ease-in-out infinite alternate" : undefined,
+            filter: live
+              ? `drop-shadow(0 0 10px ${tierGlow(m)})`
+              : "drop-shadow(0 0 6px rgba(255,138,31,.45))",
+          }}
+        />
+        {live && (
+          <span
             style={{
-              height: h,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontFamily: "var(--font-body)",
-              fontSize: 16,
-              color: "#5c4f80",
+              position: "absolute",
+              left: 14,
+              top: 10,
+              fontFamily: "var(--font-display)",
+              fontSize: 24,
+              color: "#fff",
+              textShadow: `0 0 8px ${tierGlow(m)}, 0 0 26px ${tierGlow(m)}`,
             }}
           >
-            FIRST ROUND SOON
-          </div>
+            {m.toFixed(2)}×
+          </span>
+        )}
+        {open && (
+          <span
+            style={{
+              position: "absolute",
+              left: 14,
+              top: 10,
+              fontFamily: "var(--font-display)",
+              fontSize: 13,
+              letterSpacing: 3,
+              color: "#5fe08a",
+              animation: "hintBlink 1.4s step-end infinite",
+            }}
+          >
+            ▲ BOARDING NOW
+          </span>
         )}
       </div>
 
+      <div style={{ marginTop: 8, fontFamily: "var(--font-body)", fontSize: 17, color: "#8878b8" }}>
+        BETS {room.minBet}–{room.maxBet.toLocaleString()} · {room.state?.toUpperCase() ?? "…"}
+      </div>
       <div
         style={{
-          marginTop: 14,
+          marginTop: 8,
+          padding: "6px 8px",
+          background: "#06040d",
+          boxShadow: "inset 0 0 0 1px #241640",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
+          gap: 6,
+          justifyContent: "center",
+          minHeight: 28,
         }}
       >
-        <span style={{ fontFamily: "var(--font-body)", fontSize: 19, color: "#ff8a1f" }}>
-          BETS {room.minBet}–{room.maxBet.toLocaleString()}
-        </span>
-        <span style={{ fontFamily: "var(--font-display)", fontSize: 12, letterSpacing: 2, color: "#ff2d95" }}>
-          ENTER ▸
-        </span>
+        {(room.recentCrashes ?? []).slice(0, 6).map((mv, i) => (
+          <span
+            key={i}
+            style={{
+              fontFamily: "var(--font-body)",
+              fontSize: 15,
+              padding: "0 6px",
+              border: `1px solid ${mv >= 2 ? "#5fe08a" : mv >= 1.3 ? "#6b5f9e" : "#8c3b2e"}`,
+              color: mv >= 2 ? "#5fe08a" : mv >= 1.3 ? "#8878b8" : "#f2643d",
+            }}
+          >
+            {mv.toFixed(2)}×
+          </span>
+        ))}
+        {(room.recentCrashes ?? []).length === 0 && (
+          <span style={{ fontFamily: "var(--font-body)", fontSize: 15, color: "#5c4f80" }}>
+            FIRST ROUND SOON
+          </span>
+        )}
       </div>
     </Link>
   );
 }
 
+// Glow colour tiers shared with the crash room's readouts.
+function tierGlow(m: number): string {
+  return m >= 25 ? "#f2643d" : m >= 10 ? "#ff2d95" : m >= 5 ? "#ffb15c" : m >= 2 ? "#5fe08a" : "#22e8ff";
+}
 function MachineCard({ game }: { game: GameInfo }) {
   const pt = game.paytable;
   const icons = pt?.icons ?? [];
