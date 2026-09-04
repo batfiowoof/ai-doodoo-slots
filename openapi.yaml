@@ -127,32 +127,6 @@ paths:
         "204": { description: Revoked }
         "404": { $ref: "#/components/responses/Error" }
 
-  /api/v1/auth/oauth/{provider}/start:
-    get:
-      operationId: oauthStart
-      tags: [auth]
-      summary: Begin OAuth flow
-      parameters:
-        - name: provider
-          in: path
-          required: true
-          schema: { type: string, enum: [discord, google] }
-      responses:
-        "302": { description: Redirect to provider }
-
-  /api/v1/auth/oauth/{provider}/callback:
-    get:
-      operationId: oauthCallback
-      tags: [auth]
-      summary: OAuth callback
-      parameters:
-        - name: provider
-          in: path
-          required: true
-          schema: { type: string, enum: [discord, google] }
-      responses:
-        "302": { description: Redirect into the app with a session set }
-
   /api/v1/me:
     get:
       operationId: getMe
@@ -168,6 +142,159 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Me" }
         "401": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateMe
+      tags: [user]
+      summary: Edit the caller's profile (display name, avatar preset)
+      description: >-
+        Display names are 3-20 chars (letters, digits, spaces, _ and -),
+        case-insensitively unique, and cooldown-limited to one change per
+        24h (the first rename is exempt). Guests may rename too; the
+        Keycloak write-back only applies to registered accounts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfileUpdateRequest" }
+      responses:
+        "200":
+          description: Updated identity and balance
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403":
+          description: Rename cooldown active
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Display name already taken
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/v1/me/avatar:
+    put:
+      operationId: uploadAvatar
+      tags: [user]
+      summary: Upload an avatar (registered players only)
+      description: >-
+        Body is raw PNG or JPEG bytes (max 1MB). The server center-crops,
+        downscales to 64x64 pixels, and stores the result; subsequent
+        renders use the bumped avatarVersion to cache-bust.
+      requestBody:
+        required: true
+        content:
+          image/png:
+            schema: { type: string, format: binary }
+          image/jpeg:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: New avatar version
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AvatarUploadResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403":
+          description: Guests cannot upload
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "415": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteAvatar
+      tags: [user]
+      summary: Clear the caller's avatar (preset and upload)
+      responses:
+        "204": { description: Cleared }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /api/v1/me/self-exclude:
+    post:
+      operationId: selfExclude
+      tags: [user]
+      summary: Self-exclude from betting
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                days: { type: integer, nullable: true }
+      responses:
+        "200":
+          description: New status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  statusUntil: { type: string, format: date-time, nullable: true }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /api/v1/me/deposit:
+    post:
+      operationId: deposit
+      tags: [user]
+      summary: Claim the hourly play-money top-up
+      responses:
+        "200":
+          description: Deposit result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balanceCredits: { type: integer, format: int64 }
+                  claimed: { type: boolean }
+                  amountCredits: { type: integer, format: int64 }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /api/v1/users/{id}/avatar:
+    get:
+      operationId: getUserAvatar
+      tags: [user]
+      summary: Serve a player's uploaded avatar image
+      description: >-
+        404 unless the player uploaded an image and has no preset selected.
+        Responses are immutable; the version query cache-busts.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: v
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Avatar image
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/users/{id}/profile:
+    get:
+      operationId: getUserProfile
+      tags: [user]
+      summary: Public profile slice for a player
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Public profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicProfile" }
+        "404": { $ref: "#/components/responses/Error" }
 
   /api/v1/games:
     get:
@@ -459,6 +586,28 @@ paths:
               schema: { $ref: "#/components/schemas/RoomSnapshot" }
         "404": { $ref: "#/components/responses/Error" }
 
+  /api/v1/admin/users:
+    get:
+      operationId: adminListUsers
+      tags: [admin]
+      summary: List or search users (moderator+)
+      parameters:
+        - name: query
+          in: query
+          schema: { type: string }
+          description: Substring match on display name or email; empty lists newest first
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 100 }
+      responses:
+        "200":
+          description: User rows
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUserList" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
   /api/v1/admin/users/{id}/ban:
     post:
       operationId: adminBan
@@ -576,6 +725,13 @@ components:
         role: { type: string, enum: [player, moderator, admin] }
         status: { type: string, enum: [active, banned, self_excluded] }
         createdAt: { type: string, format: date-time }
+        avatarPreset:
+          type: string
+          description: Curated avatar sprite key; empty = none (an upload may exist)
+        avatarVersion:
+          type: integer
+          format: int64
+          description: Bumped on every avatar change; > 0 with empty preset = upload
 
     Me:
       type: object
@@ -583,6 +739,53 @@ components:
       properties:
         user: { $ref: "#/components/schemas/User" }
         balanceCredits: { type: integer, format: int64 }
+
+    ProfileUpdateRequest:
+      type: object
+      properties:
+        displayName: { type: string }
+        avatarPreset:
+          type: string
+          description: Preset sprite key; empty string clears the preset
+
+    AvatarUploadResponse:
+      type: object
+      required: [avatarVersion]
+      properties:
+        avatarVersion: { type: integer, format: int64 }
+
+    PublicProfile:
+      type: object
+      required: [id, displayName]
+      properties:
+        id: { type: integer, format: int64 }
+        displayName: { type: string }
+        avatarPreset: { type: string }
+        avatarVersion: { type: integer, format: int64 }
+        role: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    AdminUserRow:
+      type: object
+      required: [id, displayName, isGuest, role, status, createdAt]
+      properties:
+        id: { type: integer, format: int64 }
+        displayName: { type: string }
+        isGuest: { type: boolean }
+        email: { type: string, nullable: true }
+        emailVerified: { type: boolean }
+        role: { type: string }
+        status: { type: string, enum: [active, banned, self_excluded] }
+        statusUntil: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    AdminUserList:
+      type: object
+      required: [users]
+      properties:
+        users:
+          type: array
+          items: { $ref: "#/components/schemas/AdminUserRow" }
 
     SessionInfo:
       type: object
@@ -820,3 +1023,7 @@ components:
 #   { "type": "wallet",        "balanceCredits": 1000 }
 #   { "type": "error",         "code": "...", "message": "..." }
 #   { "type": "session_revoked" }      then the server closes the socket
+#   { "type": "profile_updated",
+#     "payload": { "userId": 7, "displayName": "NOVA", "avatarPreset": "crown",
+#                  "avatarVersion": 3 } }
+#     fan-out to every client whenever a player renames or changes avatar

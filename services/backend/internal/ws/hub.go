@@ -237,10 +237,14 @@ func (h *Hub) handleSessionEvent(ev bus.Event) {
 	}
 }
 
-// handleUserEvent closes connections of accounts whose status now forbids
-// anything further (banned, self_excluded) — they may read over HTTP but
-// their live sockets go down on status change.
+// handleUserEvent dispatches user-scoped bus events. Status changes drop the
+// account's sockets; profile changes fan out to everyone so live rooms see
+// renames and avatar swaps immediately.
 func (h *Hub) handleUserEvent(ev bus.Event) {
+	if ev.Type == "profile_updated" {
+		h.BroadcastAll(Message{Type: "profile_updated", Payload: ev.Payload})
+		return
+	}
 	var p struct {
 		UserID int64  `json:"userId"`
 		Status string `json:"status"`
@@ -342,6 +346,26 @@ func (h *Hub) BroadcastRoom(slug string, m Message) {
 	room := h.rooms[slug]
 	targets := make([]*Client, 0, len(room))
 	for c := range room {
+		targets = append(targets, c)
+	}
+	h.mu.RUnlock()
+	for _, c := range targets {
+		select {
+		case c.send <- payload:
+		default:
+			c.close() // slow client dropped
+		}
+	}
+}
+
+// BroadcastAll fans an event out to every connected client, regardless of
+// subscriptions. Used for profile updates, which are relevant anywhere a
+// name or avatar is rendered.
+func (h *Hub) BroadcastAll(m Message) {
+	payload, _ := json.Marshal(m)
+	h.mu.RLock()
+	targets := make([]*Client, 0, len(h.clients))
+	for c := range h.clients {
 		targets = append(targets, c)
 	}
 	h.mu.RUnlock()

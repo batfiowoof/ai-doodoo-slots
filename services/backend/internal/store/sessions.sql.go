@@ -52,7 +52,8 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 const getActiveSessionByTokenHash = `-- name: GetActiveSessionByTokenHash :one
 SELECT s.id AS session_id, s.expires_at, s.last_seen_at,
        u.id AS user_id, u.is_guest, u.display_name, u.email,
-       u.email_verified_at, u.role, u.status, u.created_at AS user_created_at
+       u.email_verified_at, u.role, u.status, u.created_at AS user_created_at,
+       u.avatar_preset, u.avatar_version, u.display_name_updated_at
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1
@@ -61,17 +62,20 @@ WHERE s.token_hash = $1
 `
 
 type GetActiveSessionByTokenHashRow struct {
-	SessionID       int64
-	ExpiresAt       time.Time
-	LastSeenAt      time.Time
-	UserID          int64
-	IsGuest         bool
-	DisplayName     string
-	Email           *string
-	EmailVerifiedAt *time.Time
-	Role            string
-	Status          string
-	UserCreatedAt   time.Time
+	SessionID            int64
+	ExpiresAt            time.Time
+	LastSeenAt           time.Time
+	UserID               int64
+	IsGuest              bool
+	DisplayName          string
+	Email                *string
+	EmailVerifiedAt      *time.Time
+	Role                 string
+	Status               string
+	UserCreatedAt        time.Time
+	AvatarPreset         pgtype.Text
+	AvatarVersion        int64
+	DisplayNameUpdatedAt *time.Time
 }
 
 func (q *Queries) GetActiveSessionByTokenHash(ctx context.Context, tokenHash string) (GetActiveSessionByTokenHashRow, error) {
@@ -89,6 +93,9 @@ func (q *Queries) GetActiveSessionByTokenHash(ctx context.Context, tokenHash str
 		&i.Role,
 		&i.Status,
 		&i.UserCreatedAt,
+		&i.AvatarPreset,
+		&i.AvatarVersion,
+		&i.DisplayNameUpdatedAt,
 	)
 	return i, err
 }

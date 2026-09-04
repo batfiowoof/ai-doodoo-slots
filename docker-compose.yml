@@ -48,6 +48,12 @@ services:
       OPENROUTER_MODELS: ${OPENROUTER_MODELS:-}
       KEYCLOAK_ISSUER: http://localhost:8081/realms/retro-casino
       KEYCLOAK_CLIENT_ID: web
+      # Profile write-back: retro-api is a confidential service-account
+      # client with realm-management view/manage-users roles.
+      KEYCLOAK_ADMIN_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN_ISSUER: http://keycloak:8080/realms/retro-casino
+      KEYCLOAK_ADMIN_CLIENT_ID: retro-api
+      KEYCLOAK_ADMIN_CLIENT_SECRET: retro-api-dev-secret
       # Internal override: the container cannot reach the public frontend URL.
       KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/retro-casino/protocol/openid-connect/certs
     ports:

@@ -148,16 +148,27 @@ type Transaction struct {
 }
 
 type User struct {
-	ID              int64
-	CreatedAt       time.Time
-	IsGuest         bool
-	DisplayName     string
-	Email           *string
-	PasswordHash    pgtype.Text
-	EmailVerifiedAt *time.Time
-	Role            string
-	Status          string
-	StatusUntil     *time.Time
+	ID                   int64
+	CreatedAt            time.Time
+	IsGuest              bool
+	DisplayName          string
+	Email                *string
+	PasswordHash         pgtype.Text
+	EmailVerifiedAt      *time.Time
+	Role                 string
+	Status               string
+	StatusUntil          *time.Time
+	AvatarPreset         pgtype.Text
+	AvatarVersion        int64
+	DisplayNameUpdatedAt *time.Time
+}
+
+type UserAvatar struct {
+	UserID      int64
+	ContentType string
+	Bytes       []byte
+	Sha256      string
+	UpdatedAt   time.Time
 }
 
 type Wallet struct {

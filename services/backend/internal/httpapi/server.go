@@ -32,6 +32,7 @@ type Server struct {
 	pool         *pgxpool.Pool
 	auth         *auth.Service
 	oidc         *auth.OIDCVerifier // nil when Keycloak is not configured
+	kcAdmin      *auth.AdminClient  // nil when profile write-back is not configured
 	wallet       *wallet.Wallet
 	fair         *fair.Service
 	registry     *game.Registry
@@ -64,6 +65,12 @@ func WithThemeService(ts *theme.Service) Option {
 // guest-only mode.
 func WithOIDC(v *auth.OIDCVerifier) Option {
 	return func(s *Server) { s.oidc = v }
+}
+
+// WithKeycloakAdmin attaches the profile write-back client. Without it
+// profile changes stay local and never reach Keycloak attributes.
+func WithKeycloakAdmin(a *auth.AdminClient) Option {
+	return func(s *Server) { s.kcAdmin = a }
 }
 
 // WithHub enables the realtime surface: an authenticated WebSocket endpoint
@@ -152,6 +159,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/auth/sessions", s.handleListSessions)
 	mux.HandleFunc("DELETE /api/v1/auth/sessions/{id}", s.handleRevokeSession)
 	mux.HandleFunc("GET /api/v1/me", s.handleMe)
+	mux.HandleFunc("PATCH /api/v1/me", s.handleUpdateMe)
+	mux.HandleFunc("PUT /api/v1/me/avatar", s.handlePutAvatar)
+	mux.HandleFunc("DELETE /api/v1/me/avatar", s.handleDeleteAvatar)
+	mux.HandleFunc("GET /api/v1/users/{id}/avatar", s.handleUserAvatar)
+	mux.HandleFunc("GET /api/v1/users/{id}/profile", s.handleUserPublicProfile)
 	mux.HandleFunc("GET /api/v1/games", s.handleListGames)
 	mux.HandleFunc("POST /api/v1/games/{id}/play", s.handlePlay)
 	mux.HandleFunc("POST /api/v1/games/blackjack/deal", s.handleBlackjackDeal)
@@ -160,6 +172,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/bets", s.handleListBets)
 	mux.HandleFunc("GET /api/v1/fair/current", s.handleFairCurrent)
 	mux.HandleFunc("POST /api/v1/fair/rotate", s.handleFairRotate)
+	mux.HandleFunc("GET /api/v1/admin/users", s.handleAdminListUsers)
 	mux.HandleFunc("POST /api/v1/admin/users/{id}/ban", s.handleBan)
 	mux.HandleFunc("POST /api/v1/admin/users/{id}/adjust", s.handleAdminAdjust)
 	mux.HandleFunc("GET /api/v1/admin/audit", s.handleAdminAudit)

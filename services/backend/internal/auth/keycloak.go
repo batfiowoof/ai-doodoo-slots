@@ -71,71 +71,102 @@ func (s *Service) ResolveKeycloakUser(ctx context.Context, c *KeycloakClaims, gu
 		}
 	case errors.Is(idErr, pgx.ErrNoRows):
 		// First login with this identity: upgrade the in-progress guest
-		// if there is one, otherwise provision a fresh user.
-		if guestUserID != 0 {
-			var verified *time.Time
-			if c.EmailVerified {
-				now := s.clock.Now()
-				verified = &now
+		// if there is one, otherwise provision a fresh user. An email
+		// collision means the local account predates this Keycloak sub
+		// (re-provisioned realm, or the player registered earlier) — link
+		// the identity to the existing row instead of erroring.
+		linkedByEmail := false
+		if c.Email != "" {
+			if existing, eerr := q.GetUserByEmail(ctx, strPtr(c.Email)); eerr == nil {
+				if err := q.InsertOauthIdentity(ctx, store.InsertOauthIdentityParams{
+					Provider:       OauthProviderKeycloak,
+					ProviderUserID: c.Subject,
+					UserID:         existing.ID,
+				}); err != nil {
+					return ResolveResult{}, err
+				}
+				if guestSessionID != 0 {
+					_ = q.RevokeSessionByID(ctx, guestSessionID)
+				}
+				if err := audit(ctx, q, existing.ID, "user.link", existing.ID, map[string]any{
+					"provider": OauthProviderKeycloak,
+					"reason":   "email_match",
+				}); err != nil {
+					return ResolveResult{}, err
+				}
+				user = existing
+				created, linkedByEmail = false, true
+				if err := s.syncFromClaims(ctx, q, &user, c); err != nil {
+					return ResolveResult{}, err
+				}
 			}
-			upgradedUser, err := q.UpgradeGuestForKeycloak(ctx, store.UpgradeGuestForKeycloakParams{
-				ID:              guestUserID,
-				DisplayName:     c.PreferredName,
-				Email:           strPtr(c.Email),
-				EmailVerifiedAt: verified,
-			})
-			if err != nil {
-				return ResolveResult{}, fmt.Errorf("upgrade guest: %w", err)
-			}
-			user = upgradedUser
-			if err := q.InsertOauthIdentity(ctx, store.InsertOauthIdentityParams{
-				Provider:       OauthProviderKeycloak,
-				ProviderUserID: c.Subject,
-				UserID:         user.ID,
-			}); err != nil {
-				return ResolveResult{}, err
-			}
-			if guestSessionID != 0 {
-				_ = q.RevokeSessionByID(ctx, guestSessionID)
-			}
-			if err := audit(ctx, q, user.ID, "guest.upgrade", user.ID, map[string]any{
-				"provider": OauthProviderKeycloak,
-			}); err != nil {
-				return ResolveResult{}, err
-			}
-			upgraded = true
-			if err := s.syncFromClaims(ctx, q, &user, c); err != nil {
-				return ResolveResult{}, err
-			}
-		} else {
-			var verified *time.Time
-			if c.EmailVerified {
-				now := s.clock.Now()
-				verified = &now
-			}
-			user, err = q.CreateUserFromKeycloak(ctx, store.CreateUserFromKeycloakParams{
-				DisplayName:     displayNameFor(c),
-				Email:           strPtr(c.Email),
-				EmailVerifiedAt: verified,
-			})
-			if err != nil {
-				return ResolveResult{}, fmt.Errorf("create user from keycloak: %w", err)
-			}
-			if err := q.InsertOauthIdentity(ctx, store.InsertOauthIdentityParams{
-				Provider:       OauthProviderKeycloak,
-				ProviderUserID: c.Subject,
-				UserID:         user.ID,
-			}); err != nil {
-				return ResolveResult{}, err
-			}
-			if err := audit(ctx, q, user.ID, "user.provision", user.ID, map[string]any{
-				"provider": OauthProviderKeycloak,
-			}); err != nil {
-				return ResolveResult{}, err
-			}
-			created = true
-			if err := s.syncFromClaims(ctx, q, &user, c); err != nil {
-				return ResolveResult{}, err
+		}
+		if !linkedByEmail {
+			if guestUserID != 0 {
+				var verified *time.Time
+				if c.EmailVerified {
+					now := s.clock.Now()
+					verified = &now
+				}
+				upgradedUser, err := q.UpgradeGuestForKeycloak(ctx, store.UpgradeGuestForKeycloakParams{
+					ID:              guestUserID,
+					DisplayName:     c.PreferredName,
+					Email:           strPtr(c.Email),
+					EmailVerifiedAt: verified,
+				})
+				if err != nil {
+					return ResolveResult{}, fmt.Errorf("upgrade guest: %w", err)
+				}
+				user = upgradedUser
+				if err := q.InsertOauthIdentity(ctx, store.InsertOauthIdentityParams{
+					Provider:       OauthProviderKeycloak,
+					ProviderUserID: c.Subject,
+					UserID:         user.ID,
+				}); err != nil {
+					return ResolveResult{}, err
+				}
+				if guestSessionID != 0 {
+					_ = q.RevokeSessionByID(ctx, guestSessionID)
+				}
+				if err := audit(ctx, q, user.ID, "guest.upgrade", user.ID, map[string]any{
+					"provider": OauthProviderKeycloak,
+				}); err != nil {
+					return ResolveResult{}, err
+				}
+				upgraded = true
+				if err := s.syncFromClaims(ctx, q, &user, c); err != nil {
+					return ResolveResult{}, err
+				}
+			} else {
+				var verified *time.Time
+				if c.EmailVerified {
+					now := s.clock.Now()
+					verified = &now
+				}
+				user, err = q.CreateUserFromKeycloak(ctx, store.CreateUserFromKeycloakParams{
+					DisplayName:     displayNameFor(c),
+					Email:           strPtr(c.Email),
+					EmailVerifiedAt: verified,
+				})
+				if err != nil {
+					return ResolveResult{}, fmt.Errorf("create user from keycloak: %w", err)
+				}
+				if err := q.InsertOauthIdentity(ctx, store.InsertOauthIdentityParams{
+					Provider:       OauthProviderKeycloak,
+					ProviderUserID: c.Subject,
+					UserID:         user.ID,
+				}); err != nil {
+					return ResolveResult{}, err
+				}
+				if err := audit(ctx, q, user.ID, "user.provision", user.ID, map[string]any{
+					"provider": OauthProviderKeycloak,
+				}); err != nil {
+					return ResolveResult{}, err
+				}
+				created = true
+				if err := s.syncFromClaims(ctx, q, &user, c); err != nil {
+					return ResolveResult{}, err
+				}
 			}
 		}
 	default:
@@ -145,7 +176,9 @@ func (s *Service) ResolveKeycloakUser(ctx context.Context, c *KeycloakClaims, gu
 	if err := tx.Commit(ctx); err != nil {
 		return ResolveResult{}, err
 	}
-	return ResolveResult{User: sessionUserFromStore(&user), Created: created, Upgraded: upgraded}, nil
+	su := sessionUserFromStore(&user)
+	su.Subject = c.Subject
+	return ResolveResult{User: su, Created: created, Upgraded: upgraded}, nil
 }
 
 // syncFromClaims updates local role (and verification state) from the
@@ -195,12 +228,14 @@ func strPtr(s string) *string {
 
 func sessionUserFromStore(u *store.User) *SessionUser {
 	su := &SessionUser{
-		UserID:      u.ID,
-		IsGuest:     u.IsGuest,
-		DisplayName: u.DisplayName,
-		Role:        u.Role,
-		Status:      u.Status,
-		CreatedAt:   u.CreatedAt,
+		UserID:        u.ID,
+		IsGuest:       u.IsGuest,
+		DisplayName:   u.DisplayName,
+		Role:          u.Role,
+		Status:        u.Status,
+		CreatedAt:     u.CreatedAt,
+		AvatarPreset:  u.AvatarPreset.String,
+		AvatarVersion: u.AvatarVersion,
 	}
 	if u.Email != nil {
 		su.Email = u.Email
@@ -211,6 +246,10 @@ func sessionUserFromStore(u *store.User) *SessionUser {
 	}
 	return su
 }
+
+// SessionUserFromStore exposes the row→session mapping for handlers that
+// write profile fields directly and need a fresh SessionUser.
+func SessionUserFromStore(u *store.User) *SessionUser { return sessionUserFromStore(u) }
 
 func audit(ctx context.Context, q *store.Queries, actorID int64, action string, targetID int64, meta map[string]any) error {
 	metaJSON, err := json.Marshal(meta)

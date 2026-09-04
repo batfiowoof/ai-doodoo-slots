@@ -23,6 +23,7 @@ import (
 	"github.com/ai-doodoo-slots/services/backend/internal/round"
 	"github.com/ai-doodoo-slots/services/backend/internal/store"
 	"github.com/ai-doodoo-slots/services/backend/internal/table"
+	"github.com/ai-doodoo-slots/services/backend/internal/ws"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -63,6 +64,10 @@ func main() {
 		httpapi.WithHub(),
 	)
 	go api.Run(ctx)
+
+	// Profile changes are published by the api node over Postgres
+	// NOTIFY/LISTEN; relay them onto our sockets.
+	go ws.RelayProfileNotifications(ctx, pool, api.Hub(), logger)
 
 	// One runner per active room; each runner is the single writer for its
 	// room's rounds. Round games (crash) use the phase-loop runner; table

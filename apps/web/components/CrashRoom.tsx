@@ -4,8 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSession } from "@/lib/api";
-import type { Me } from "@/lib/types";
+import type { Me, ProfileUpdatedEvent } from "@/lib/types";
 import { sound } from "@/lib/sound";
+import { Avatar } from "@/components/Avatar";
 import { CrashScene, type ScenePhase } from "@/lib/crashScene";
 
 // The crash room: flight scene, bet panel, crew manifest, flight log. The
@@ -74,6 +75,8 @@ export default function CrashRoom({ slug }: { slug: string }) {
   const [tMinus, setTMinus] = useState(7);
   const [pulseKey, setPulseKey] = useState(0);
   const [demoBalance, setDemoBalance] = useState<number | null>(null);
+  // Live profile edits from other players overlay manifest names.
+  const [profiles, setProfiles] = useState<Record<number, ProfileUpdatedEvent>>({});
 
   const wsRef = useRef<WebSocket | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -414,6 +417,13 @@ export default function CrashRoom({ slug }: { slug: string }) {
             showNote((p?.code ?? "error").toUpperCase().replaceAll("_", " "));
             sound.error();
             break;
+          case "profile_updated": {
+            const pu = p as unknown as ProfileUpdatedEvent;
+            if (pu && typeof pu.userId === "number") {
+              setProfiles((prev) => ({ ...prev, [pu.userId]: pu }));
+            }
+            break;
+          }
         }
       };
     };
@@ -998,7 +1008,15 @@ export default function CrashRoom({ slug }: { slug: string }) {
                   animation: s.cashedAt ? "rowCash .8s ease-out both" : undefined,
                 }}
               >
-                <span>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Avatar
+                    userId={s.userId}
+                    displayName={profiles[s.userId]?.displayName ?? s.displayName ?? `PLAYER ${s.userId}`}
+                    avatarPreset={profiles[s.userId]?.avatarPreset}
+                    avatarVersion={profiles[s.userId]?.avatarVersion}
+                    size={22}
+                    ring={s.userId === userId ? "#ff8a1f" : "#35205c"}
+                  />
                   {s.cashedAt ? (
                     <span style={{ color: "#5fe08a" }}>✓ </span>
                   ) : (
@@ -1011,7 +1029,7 @@ export default function CrashRoom({ slug }: { slug: string }) {
                       ▸{" "}
                     </span>
                   )}
-                  {s.displayName || `PLAYER ${s.userId}`}
+                  {profiles[s.userId]?.displayName ?? s.displayName ?? `PLAYER ${s.userId}`}
                   {s.userId === userId ? " (YOU)" : ""}
                 </span>
                 <span>

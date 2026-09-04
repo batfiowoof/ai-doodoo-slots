@@ -8,7 +8,9 @@ import type {
   GameInfo,
   HandResponse,
   Me,
+  SessionInfo,
   SlotsOutcome,
+  AdminUserRow,
 } from "./types";
 
 // All client traffic goes through the same-origin BFF; the client never
@@ -163,6 +165,159 @@ export function useDeposit() {
       qc.setQueryData<Me>(["me"], (old) =>
         old ? { ...old, balanceCredits: data.balanceCredits } : old,
       );
+    },
+  });
+}
+
+// ---- Profile & account settings ----
+
+/** Thrown by profile mutations so the modal can show the server's code. */
+export class ProfileError extends Error {
+  code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+async function profileError(res: Response): Promise<never> {
+  const body = (await res.json().catch(() => null)) as { code?: string; message?: string } | null;
+  throw new ProfileError(body?.code ?? "error", body?.message ?? `request failed: ${res.status}`);
+}
+
+export interface ProfileUpdateInput {
+  displayName?: string;
+  avatarPreset?: string;
+}
+
+/** Renames the player and/or sets (or clears) the avatar preset. */
+export function useUpdateProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: ProfileUpdateInput): Promise<Me> => {
+      const res = await fetch("/api/v1/me", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) await profileError(res);
+      return res.json() as Promise<Me>;
+    },
+    onSuccess: (me) => qc.setQueryData<Me>(["me"], me),
+  });
+}
+
+/** Uploads an avatar. The caller sends a 64x64 PNG (see AccountModal). */
+export function useUploadAvatar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (png: Blob): Promise<number> => {
+      const res = await fetch("/api/v1/me/avatar", {
+        method: "PUT",
+        headers: { "content-type": "image/png" },
+        body: png,
+      });
+      if (!res.ok) await profileError(res);
+      const data = (await res.json()) as { avatarVersion: number };
+      return data.avatarVersion;
+    },
+    onSuccess: (version) => {
+      qc.setQueryData<Me>(["me"], (old) =>
+        old ? { ...old, user: { ...old.user, avatarPreset: "", avatarVersion: version } } : old,
+      );
+    },
+  });
+}
+
+/** Removes the avatar entirely (preset and upload). */
+export function useDeleteAvatar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<void> => {
+      const res = await fetch("/api/v1/me/avatar", { method: "DELETE" });
+      if (!res.ok) await profileError(res);
+    },
+    onSuccess: () => {
+      qc.setQueryData<Me>(["me"], (old) =>
+        old ? { ...old, user: { ...old.user, avatarPreset: "", avatarVersion: 0 } } : old,
+      );
+    },
+  });
+}
+
+/** Active sessions for the SECURITY tab (guest + Keycloak logins alike). */
+export function useSessions(enabled: boolean) {
+  return useQuery({
+    queryKey: ["sessions"],
+    queryFn: () => getJSON<SessionInfo[]>("/api/v1/auth/sessions"),
+    enabled,
+  });
+}
+
+export function useRevokeSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number): Promise<void> => {
+      const res = await fetch(`/api/v1/auth/sessions/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`revoke failed: ${res.status}`);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["sessions"] });
+    },
+  });
+}
+
+// ---- Admin (moderator+) ----
+
+export function useAdminUsers(query: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["adminUsers", query],
+    queryFn: () =>
+      getJSON<{ users: AdminUserRow[] }>(
+        `/api/v1/admin/users?query=${encodeURIComponent(query)}&limit=50`,
+      ),
+    enabled,
+  });
+}
+
+export function useAdminBan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ userId, banned }: { userId: number; banned: boolean }): Promise<void> => {
+      const res = await fetch(`/api/v1/admin/users/${userId}/ban`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ banned }),
+      });
+      if (!res.ok) await profileError(res);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["adminUsers"] });
+    },
+  });
+}
+
+export function useAdminAdjust() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      userId,
+      amountCredits,
+      reason,
+    }: {
+      userId: number;
+      amountCredits: number;
+      reason: string;
+    }): Promise<void> => {
+      const res = await fetch(`/api/v1/admin/users/${userId}/adjust`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ amountCredits, reason }),
+      });
+      if (!res.ok) await profileError(res);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["adminUsers"] });
     },
   });
 }

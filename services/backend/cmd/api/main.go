@@ -78,6 +78,23 @@ func main() {
 		verifier := auth.NewOIDCVerifier(cfg, clock.Real{}, logger)
 		opts = append(opts, httpapi.WithOIDC(verifier))
 		logger.Info("keycloak auth enabled", "issuer", issuer)
+
+		// Profile write-back: Keycloak attributes mirror the local profile
+		// so tokens and future OIDC consumers stay coherent. Optional. The
+		// issuer override lets the container reach the token endpoint over
+		// the compose network (the public issuer URL is browser-facing).
+		if adminClient := auth.NewAdminClient(
+			envOr("KEYCLOAK_ADMIN_ISSUER", issuer),
+			os.Getenv("KEYCLOAK_ADMIN_URL"),
+			envOr("KEYCLOAK_ADMIN_CLIENT_ID", "retro-api"),
+			os.Getenv("KEYCLOAK_ADMIN_CLIENT_SECRET"),
+			clock.Real{}, logger,
+		); adminClient != nil {
+			opts = append(opts, httpapi.WithKeycloakAdmin(adminClient))
+			logger.Info("keycloak profile write-back enabled")
+		} else {
+			logger.Info("keycloak admin not configured; profile write-back disabled")
+		}
 	} else {
 		logger.Info("KEYCLOAK_ISSUER not set; guest-only mode")
 	}

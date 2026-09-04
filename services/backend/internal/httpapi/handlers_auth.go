@@ -91,12 +91,14 @@ func (s *Server) authIdentity(r *http.Request) (*ws.Identity, bool) {
 		return nil, false
 	}
 	return &ws.Identity{
-		UserID:      su.UserID,
-		SessionID:   su.SessionID,
-		IsGuest:     su.IsGuest,
-		DisplayName: su.DisplayName,
-		Role:        su.Role,
-		Status:      su.Status,
+		UserID:        su.UserID,
+		SessionID:     su.SessionID,
+		IsGuest:       su.IsGuest,
+		DisplayName:   su.DisplayName,
+		Role:          su.Role,
+		Status:        su.Status,
+		AvatarPreset:  su.AvatarPreset,
+		AvatarVersion: su.AvatarVersion,
 	}, true
 }
 

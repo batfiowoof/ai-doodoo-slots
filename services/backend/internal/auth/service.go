@@ -57,6 +57,15 @@ type SessionUser struct {
 	CreatedAt       time.Time
 	ExpiresAt       time.Time
 	LastSeenAt      time.Time
+	// Avatar is a preset sprite name; empty means no preset (an uploaded
+	// image may still exist, keyed by AvatarVersion > 0).
+	AvatarPreset  string
+	AvatarVersion int64
+	// Subject is the Keycloak sub (empty for guests). It addresses the
+	// Keycloak user for profile write-back.
+	Subject string
+	// DisplayNameUpdatedAt gates the rename cooldown; nil = never renamed.
+	DisplayNameUpdatedAt *time.Time
 }
 
 // CanBet reports whether the account status permits betting. Banned and
@@ -113,6 +122,9 @@ func (s *Service) SessionFromToken(ctx context.Context, rawToken string) (*Sessi
 		CreatedAt:       row.UserCreatedAt,
 		ExpiresAt:       row.ExpiresAt,
 		LastSeenAt:      row.LastSeenAt,
+		AvatarPreset:    row.AvatarPreset.String,
+		AvatarVersion:   row.AvatarVersion,
+		DisplayNameUpdatedAt: row.DisplayNameUpdatedAt,
 	}
 
 	if s.clock.Now().Sub(row.LastSeenAt) > touchInterval {

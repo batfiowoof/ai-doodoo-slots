@@ -6,8 +6,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import Backdrop from "@/components/Backdrop";
 import Chip, { ChipStack } from "@/components/Chip";
 import PlayingCard from "@/components/PlayingCard";
+import { Avatar } from "@/components/Avatar";
 import { useSession } from "@/lib/api";
-import type { Me } from "@/lib/types";
+import type { Me, ProfileUpdatedEvent } from "@/lib/types";
 import { sound } from "@/lib/sound";
 
 // The poker room: a full-width oval felt seen from your seat. The server
@@ -113,6 +114,9 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
 
   const [connected, setConnected] = useState(false);
   const [view, setView] = useState<TableView | null>(null);
+  // Live profile edits (renames, avatars) overlay the names snapshotted into
+  // seat state at buy-in; the socket carries them to everyone present.
+  const [profiles, setProfiles] = useState<Record<number, ProfileUpdatedEvent>>({});
   const [myCards, setMyCards] = useState<string[]>([]);
   const [showdown, setShowdown] = useState<HandRecord | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -256,6 +260,13 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
             showNote(code);
             sound.error();
             setBusy(false);
+            break;
+          }
+          case "profile_updated": {
+            const pu = p as unknown as ProfileUpdatedEvent;
+            if (pu && typeof pu.userId === "number") {
+              setProfiles((prev) => ({ ...prev, [pu.userId]: pu }));
+            }
             break;
           }
         }
@@ -672,7 +683,10 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
                       }}
                     >
                       <SeatPlate
-                        name={s.displayName}
+                        name={profiles[s.userId]?.displayName ?? s.displayName}
+                        userId={s.userId}
+                        avatarPreset={profiles[s.userId]?.avatarPreset}
+                        avatarVersion={profiles[s.userId]?.avatarVersion}
                         stack={s.stack}
                         bet={s.bet}
                         allIn={s.allIn}
@@ -707,7 +721,10 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
                 >
                   {seated && mySeat ? (
                     <SeatPlate
-                      name={`${mySeat.displayName} (YOU)`}
+                      name={`${profiles[mySeat.userId]?.displayName ?? mySeat.displayName} (YOU)`}
+                      userId={mySeat.userId}
+                      avatarPreset={profiles[mySeat.userId]?.avatarPreset}
+                      avatarVersion={profiles[mySeat.userId]?.avatarVersion}
                       stack={mySeat.stack}
                       bet={mySeat.bet}
                       allIn={mySeat.allIn}
@@ -1138,6 +1155,9 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
 
 function SeatPlate({
   name,
+  userId,
+  avatarPreset,
+  avatarVersion,
   stack,
   bet,
   allIn,
@@ -1149,6 +1169,9 @@ function SeatPlate({
   children,
 }: {
   name: string;
+  userId?: number;
+  avatarPreset?: string;
+  avatarVersion?: number;
   stack: number;
   bet: number;
   allIn: boolean;
@@ -1159,13 +1182,14 @@ function SeatPlate({
   me?: boolean;
   children?: React.ReactNode;
 }) {
+  const ring = isTurn ? "#22e8ff" : me ? "#ff8a1f" : "#241640";
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
       <div
         style={{
           padding: "7px 14px",
           background: "rgba(6,4,13,.8)",
-          border: `2px solid ${isTurn ? "#22e8ff" : me ? "#ff8a1f" : "#241640"}`,
+          border: `2px solid ${ring}`,
           animation: isTurn ? "turnPulse 1.1s ease-in-out infinite" : undefined,
           display: "flex",
           flexDirection: "column",
@@ -1188,6 +1212,16 @@ function SeatPlate({
             gap: 6,
           }}
         >
+          {userId !== undefined && (
+            <Avatar
+              userId={userId}
+              displayName={name}
+              avatarPreset={avatarPreset}
+              avatarVersion={avatarVersion}
+              size={20}
+              ring={ring}
+            />
+          )}
           {isDealer && (
             <span
               style={{

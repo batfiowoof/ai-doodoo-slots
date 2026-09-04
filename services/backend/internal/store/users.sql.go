@@ -7,15 +7,90 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const adminListUsers = `-- name: AdminListUsers :many
+SELECT id, created_at, is_guest, display_name, email, email_verified_at,
+       role, status, status_until
+FROM users
+WHERE $1::text = ''
+   OR display_name ILIKE '%' || $1::text || '%'
+   OR email::text ILIKE '%' || $1::text || '%'
+ORDER BY id DESC
+LIMIT $2
+`
+
+type AdminListUsersParams struct {
+	Term    string
+	MaxRows int32
+}
+
+type AdminListUsersRow struct {
+	ID              int64
+	CreatedAt       time.Time
+	IsGuest         bool
+	DisplayName     string
+	Email           *string
+	EmailVerifiedAt *time.Time
+	Role            string
+	Status          string
+	StatusUntil     *time.Time
+}
+
+// Search by display name or email substring; empty term lists newest first.
+func (q *Queries) AdminListUsers(ctx context.Context, arg AdminListUsersParams) ([]AdminListUsersRow, error) {
+	rows, err := q.db.Query(ctx, adminListUsers, arg.Term, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AdminListUsersRow
+	for rows.Next() {
+		var i AdminListUsersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.IsGuest,
+			&i.DisplayName,
+			&i.Email,
+			&i.EmailVerifiedAt,
+			&i.Role,
+			&i.Status,
+			&i.StatusUntil,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const clearAvatar = `-- name: ClearAvatar :execrows
+UPDATE users
+SET avatar_preset = NULL, avatar_version = avatar_version + 1
+WHERE id = $1
+`
+
+func (q *Queries) ClearAvatar(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, clearAvatar, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
 
 const createUserGuest = `-- name: CreateUserGuest :one
 INSERT INTO users (display_name, is_guest)
 VALUES ($1, true)
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
-          email_verified_at, role, status, status_until
+          email_verified_at, role, status, status_until,
+          avatar_preset, avatar_version, display_name_updated_at
 `
 
 func (q *Queries) CreateUserGuest(ctx context.Context, displayName string) (User, error) {
@@ -32,6 +107,9 @@ func (q *Queries) CreateUserGuest(ctx context.Context, displayName string) (User
 		&i.Role,
 		&i.Status,
 		&i.StatusUntil,
+		&i.AvatarPreset,
+		&i.AvatarVersion,
+		&i.DisplayNameUpdatedAt,
 	)
 	return i, err
 }
@@ -40,7 +118,8 @@ const createUserRegistered = `-- name: CreateUserRegistered :one
 INSERT INTO users (display_name, email, password_hash, is_guest)
 VALUES ($1, $2, $3, false)
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
-          email_verified_at, role, status, status_until
+          email_verified_at, role, status, status_until,
+          avatar_preset, avatar_version, display_name_updated_at
 `
 
 type CreateUserRegisteredParams struct {
@@ -63,13 +142,36 @@ func (q *Queries) CreateUserRegistered(ctx context.Context, arg CreateUserRegist
 		&i.Role,
 		&i.Status,
 		&i.StatusUntil,
+		&i.AvatarPreset,
+		&i.AvatarVersion,
+		&i.DisplayNameUpdatedAt,
 	)
 	return i, err
 }
 
+const displayNameTaken = `-- name: DisplayNameTaken :one
+SELECT count(*) > 0 AS taken
+FROM users
+WHERE lower(display_name) = lower($1) AND id <> $2
+`
+
+type DisplayNameTakenParams struct {
+	Lower string
+	ID    int64
+}
+
+// Case-insensitive uniqueness check; ownership excluded by caller id.
+func (q *Queries) DisplayNameTaken(ctx context.Context, arg DisplayNameTakenParams) (bool, error) {
+	row := q.db.QueryRow(ctx, displayNameTaken, arg.Lower, arg.ID)
+	var taken bool
+	err := row.Scan(&taken)
+	return taken, err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, created_at, is_guest, display_name, email, password_hash,
-       email_verified_at, role, status, status_until
+       email_verified_at, role, status, status_until,
+       avatar_preset, avatar_version, display_name_updated_at
 FROM users
 WHERE email = $1
 `
@@ -88,13 +190,17 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email *string) (User, erro
 		&i.Role,
 		&i.Status,
 		&i.StatusUntil,
+		&i.AvatarPreset,
+		&i.AvatarVersion,
+		&i.DisplayNameUpdatedAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, created_at, is_guest, display_name, email, password_hash,
-       email_verified_at, role, status, status_until
+       email_verified_at, role, status, status_until,
+       avatar_preset, avatar_version, display_name_updated_at
 FROM users
 WHERE id = $1
 `
@@ -113,6 +219,107 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.Role,
 		&i.Status,
 		&i.StatusUntil,
+		&i.AvatarPreset,
+		&i.AvatarVersion,
+		&i.DisplayNameUpdatedAt,
+	)
+	return i, err
+}
+
+const getUserPublicProfile = `-- name: GetUserPublicProfile :one
+SELECT id, display_name, avatar_preset, avatar_version, role, created_at
+FROM users
+WHERE id = $1
+`
+
+type GetUserPublicProfileRow struct {
+	ID            int64
+	DisplayName   string
+	AvatarPreset  pgtype.Text
+	AvatarVersion int64
+	Role          string
+	CreatedAt     time.Time
+}
+
+func (q *Queries) GetUserPublicProfile(ctx context.Context, id int64) (GetUserPublicProfileRow, error) {
+	row := q.db.QueryRow(ctx, getUserPublicProfile, id)
+	var i GetUserPublicProfileRow
+	err := row.Scan(
+		&i.ID,
+		&i.DisplayName,
+		&i.AvatarPreset,
+		&i.AvatarVersion,
+		&i.Role,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const setAvatarPreset = `-- name: SetAvatarPreset :execrows
+UPDATE users
+SET avatar_preset = $2, avatar_version = avatar_version + 1
+WHERE id = $1
+`
+
+type SetAvatarPresetParams struct {
+	ID           int64
+	AvatarPreset pgtype.Text
+}
+
+func (q *Queries) SetAvatarPreset(ctx context.Context, arg SetAvatarPresetParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setAvatarPreset, arg.ID, arg.AvatarPreset)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setUploadedAvatar = `-- name: SetUploadedAvatar :one
+UPDATE users
+SET avatar_preset = NULL, avatar_version = avatar_version + 1
+WHERE id = $1
+RETURNING avatar_version
+`
+
+// An upload clears any preset; the version bump moves the public URL.
+func (q *Queries) SetUploadedAvatar(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRow(ctx, setUploadedAvatar, id)
+	var avatar_version int64
+	err := row.Scan(&avatar_version)
+	return avatar_version, err
+}
+
+const updateDisplayName = `-- name: UpdateDisplayName :one
+UPDATE users
+SET display_name = $2, display_name_updated_at = now()
+WHERE id = $1
+RETURNING id, created_at, is_guest, display_name, email, password_hash,
+          email_verified_at, role, status, status_until,
+          avatar_preset, avatar_version, display_name_updated_at
+`
+
+type UpdateDisplayNameParams struct {
+	ID          int64
+	DisplayName string
+}
+
+func (q *Queries) UpdateDisplayName(ctx context.Context, arg UpdateDisplayNameParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateDisplayName, arg.ID, arg.DisplayName)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.IsGuest,
+		&i.DisplayName,
+		&i.Email,
+		&i.PasswordHash,
+		&i.EmailVerifiedAt,
+		&i.Role,
+		&i.Status,
+		&i.StatusUntil,
+		&i.AvatarPreset,
+		&i.AvatarVersion,
+		&i.DisplayNameUpdatedAt,
 	)
 	return i, err
 }
@@ -145,7 +352,8 @@ UPDATE users
 SET email = $2, password_hash = $3, is_guest = false
 WHERE id = $1 AND is_guest = true
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
-          email_verified_at, role, status, status_until
+          email_verified_at, role, status, status_until,
+          avatar_preset, avatar_version, display_name_updated_at
 `
 
 type UpgradeGuestUserParams struct {
@@ -169,6 +377,9 @@ func (q *Queries) UpgradeGuestUser(ctx context.Context, arg UpgradeGuestUserPara
 		&i.Role,
 		&i.Status,
 		&i.StatusUntil,
+		&i.AvatarPreset,
+		&i.AvatarVersion,
+		&i.DisplayNameUpdatedAt,
 	)
 	return i, err
 }

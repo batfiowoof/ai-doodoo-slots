@@ -21,6 +21,10 @@ type Identity struct {
 	DisplayName string
 	Role        string
 	Status      string
+	// Avatar mirrors the profile: preset sprite name ("" = none) and the
+	// version counter that cache-busts the public avatar URL.
+	AvatarPreset  string
+	AvatarVersion int64
 }
 
 // CanWatch reports whether the identity may connect at all. Banned and

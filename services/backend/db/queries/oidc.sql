@@ -12,7 +12,8 @@ ON CONFLICT (provider, provider_user_id) DO NOTHING;
 INSERT INTO users (display_name, email, email_verified_at, is_guest)
 VALUES ($1, $2, $3, false)
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
-          email_verified_at, role, status, status_until;
+          email_verified_at, role, status, status_until,
+          avatar_preset, avatar_version, display_name_updated_at;
 
 -- name: UpgradeGuestForKeycloak :one
 -- Guest upgrade in place: the same row keeps its wallet, bets, and seeds.
@@ -23,4 +24,5 @@ SET display_name      = COALESCE(NULLIF(sqlc.arg('display_name')::text, ''), dis
     is_guest          = false
 WHERE id = $1 AND is_guest = true
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
-          email_verified_at, role, status, status_until;
+          email_verified_at, role, status, status_until,
+          avatar_preset, avatar_version, display_name_updated_at;

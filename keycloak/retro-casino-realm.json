@@ -27,17 +27,87 @@
       "protocol": "openid-connect",
       "fullScopeAllowed": true,
       "redirectUris": [
-        "http://localhost:3000/*"
+        "http://localhost:3000/*",
+        "http://localhost:3001/*"
       ],
       "webOrigins": [
-        "http://localhost:3000"
+        "http://localhost:3000",
+        "http://localhost:3001"
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "display-name",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "displayName",
+            "claim.name": "display_name",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "avatar-preset",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "avatarPreset",
+            "claim.name": "avatar_preset",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "avatar-version",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "avatarVersion",
+            "claim.name": "avatar_version",
+            "jsonType.label": "long",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "retro-api",
+      "name": "Retro Casino API (service account)",
+      "enabled": true,
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocol": "openid-connect",
+      "fullScopeAllowed": true,
+      "secret": "retro-api-dev-secret",
+      "attributes": {
+        "use.jwks.url": "false"
       }
     }
   ],
   "users": [
+    {
+      "username": "service-account-retro-api",
+      "enabled": true,
+      "serviceAccountClientId": "retro-api",
+      "clientRoles": {
+        "realm-management": ["view-users", "manage-users"]
+      }
+    },
     {
       "username": "player",
       "email": "player@retro.local",

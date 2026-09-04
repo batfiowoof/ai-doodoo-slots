@@ -9,6 +9,8 @@ import { sound } from "@/lib/sound";
 import { useDeposit, useGames, useSession } from "@/lib/api";
 import { useLobby, type LobbyRoom } from "@/lib/useLobby";
 import PixelCard from "@/components/PixelCard";
+import { Avatar } from "@/components/Avatar";
+import { AccountModal } from "@/components/AccountModal";
 import type { GameInfo } from "@/lib/types";
 
 const TRACK_W = 1220;
@@ -22,6 +24,7 @@ export default function GameMenu() {
   const [depositNote, setDepositNote] = useState<string | null>(null);
   const [menuScale, setMenuScale] = useState(1);
   const [muted, setMuted] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
 
   useEffect(() => {
     const onResize = () => {
@@ -140,22 +143,59 @@ export default function GameMenu() {
             >
               {balance === undefined ? "····" : balance.toLocaleString()}
             </span>
-            {session.data && !session.data.user.isGuest && (
-              <span
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontSize: 11,
-                  letterSpacing: 1,
-                  color: "#cfc4f2",
-                  maxWidth: 160,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
+            {session.data && (
+              <button
+                type="button"
+                onClick={() => {
+                  sound.unlock();
+                  sound.click();
+                  setAccountOpen(true);
                 }}
                 title={session.data.user.email ?? session.data.user.displayName}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  border: "1px solid #4a3a72",
+                  background: "#1d1036",
+                  padding: "5px 10px",
+                  cursor: "pointer",
+                  maxWidth: 220,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "#22e8ff";
+                  e.currentTarget.style.boxShadow = "0 0 14px rgba(34,232,255,.4)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "#4a3a72";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
               >
-                {session.data.user.displayName}
-              </span>
+                <Avatar
+                  userId={session.data.user.id}
+                  displayName={session.data.user.displayName}
+                  avatarPreset={session.data.user.avatarPreset}
+                  avatarVersion={session.data.user.avatarVersion}
+                  size={24}
+                  ring="#22e8ff"
+                />
+                <span
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: 11,
+                    letterSpacing: 1,
+                    color: "#cfc4f2",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {session.data.user.displayName}
+                </span>
+                <span style={{ fontFamily: "var(--font-display)", fontSize: 9, color: "#8878b8" }}>
+                  ▾
+                </span>
+              </button>
             )}
             {session.data?.user.isGuest && (
               <NavLink href="/auth/login?next=/">LOGIN</NavLink>
@@ -164,6 +204,9 @@ export default function GameMenu() {
               <NavLink href="/auth/logout">LOGOUT</NavLink>
             )}
             <NavLink href="/verify">VERIFY</NavLink>
+            {session.data && (session.data.user.role === "admin" || session.data.user.role === "moderator") && (
+              <NavLink href="/admin">STAFF</NavLink>
+            )}
             <button
               type="button"
               onClick={toggleMute}
@@ -220,6 +263,8 @@ export default function GameMenu() {
             </button>
           </div>
         </header>
+
+        <AccountModal open={accountOpen} onClose={() => setAccountOpen(false)} />
 
         {depositNote && (
           <div

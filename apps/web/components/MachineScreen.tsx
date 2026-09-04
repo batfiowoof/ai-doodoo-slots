@@ -7,6 +7,7 @@ import HistoryTable from "@/components/HistoryTable";
 import { NavButton, NavLink } from "@/components/NavButton";
 import Paytable from "@/components/Paytable";
 import VerifyClient from "@/components/VerifyClient";
+import { Avatar } from "@/components/Avatar";
 import { sound } from "@/lib/sound";
 import { useBets, useFairCurrent, useGames, useSession } from "@/lib/api";
 import type { GameInfo } from "@/lib/types";
@@ -147,7 +148,17 @@ export default function MachineScreen({ gameId }: { gameId: string }) {
             color: "#5c4f80",
           }}
         >
-          <span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            {me && (
+              <Avatar
+                userId={me.user.id}
+                displayName={me.user.displayName}
+                avatarPreset={me.user.avatarPreset}
+                avatarVersion={me.user.avatarVersion}
+                size={20}
+                ring="#35205c"
+              />
+            )}
             {me ? (me.user.isGuest ? "guest" : me.user.displayName) : "····"}
             {fair.data
               ? ` · seed ${fair.data.serverSeedHash.slice(0, 8)}… · nonce ${fair.data.nonce}`

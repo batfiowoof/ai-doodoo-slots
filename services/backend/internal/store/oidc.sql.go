@@ -14,7 +14,8 @@ const createUserFromKeycloak = `-- name: CreateUserFromKeycloak :one
 INSERT INTO users (display_name, email, email_verified_at, is_guest)
 VALUES ($1, $2, $3, false)
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
-          email_verified_at, role, status, status_until
+          email_verified_at, role, status, status_until,
+          avatar_preset, avatar_version, display_name_updated_at
 `
 
 type CreateUserFromKeycloakParams struct {
@@ -37,6 +38,9 @@ func (q *Queries) CreateUserFromKeycloak(ctx context.Context, arg CreateUserFrom
 		&i.Role,
 		&i.Status,
 		&i.StatusUntil,
+		&i.AvatarPreset,
+		&i.AvatarVersion,
+		&i.DisplayNameUpdatedAt,
 	)
 	return i, err
 }
@@ -84,7 +88,8 @@ SET display_name      = COALESCE(NULLIF($2::text, ''), display_name),
     is_guest          = false
 WHERE id = $1 AND is_guest = true
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
-          email_verified_at, role, status, status_until
+          email_verified_at, role, status, status_until,
+          avatar_preset, avatar_version, display_name_updated_at
 `
 
 type UpgradeGuestForKeycloakParams struct {
@@ -114,6 +119,9 @@ func (q *Queries) UpgradeGuestForKeycloak(ctx context.Context, arg UpgradeGuestF
 		&i.Role,
 		&i.Status,
 		&i.StatusUntil,
+		&i.AvatarPreset,
+		&i.AvatarVersion,
+		&i.DisplayNameUpdatedAt,
 	)
 	return i, err
 }

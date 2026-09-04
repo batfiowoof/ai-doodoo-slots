@@ -500,11 +500,51 @@ export interface components {
             status: "active" | "banned" | "self_excluded";
             /** Format: date-time */
             createdAt: string;
+            /** Curated avatar sprite key; empty = none (an upload may exist). */
+            avatarPreset?: string;
+            /** Bumped on every avatar change; > 0 with empty preset = upload. */
+            /** Format: int64 */
+            avatarVersion?: number;
         };
         Me: {
             user: components["schemas"]["User"];
             /** Format: int64 */
             balanceCredits: number;
+        };
+        ProfileUpdateRequest: {
+            displayName?: string;
+            /** Preset sprite key; empty string clears the preset. */
+            avatarPreset?: string;
+        };
+        AvatarUploadResponse: {
+            /** Format: int64 */
+            avatarVersion: number;
+        };
+        PublicProfile: {
+            /** Format: int64 */
+            id: number;
+            displayName: string;
+            avatarPreset?: string;
+            /** Format: int64 */
+            avatarVersion?: number;
+            role?: string;
+            createdAt?: string;
+        };
+        AdminUserRow: {
+            /** Format: int64 */
+            id: number;
+            displayName: string;
+            isGuest: boolean;
+            email?: string | null;
+            emailVerified?: boolean;
+            role: string;
+            status: "active" | "banned" | "self_excluded";
+            statusUntil?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        AdminUserList: {
+            users: components["schemas"]["AdminUserRow"][];
         };
         SessionInfo: {
             /** Format: int64 */

@@ -6,6 +6,7 @@ import Chip, { ChipStack } from "@/components/Chip";
 import HistoryTable from "@/components/HistoryTable";
 import { NavButton, NavLink } from "@/components/NavButton";
 import PlayingCard from "@/components/PlayingCard";
+import { Avatar } from "@/components/Avatar";
 import { sound } from "@/lib/sound";
 import {
   useActiveHand,
@@ -686,7 +687,17 @@ export default function BlackjackTable() {
             color: "#5c4f80",
           }}
         >
-          <span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            {me && (
+              <Avatar
+                userId={me.user.id}
+                displayName={me.user.displayName}
+                avatarPreset={me.user.avatarPreset}
+                avatarVersion={me.user.avatarVersion}
+                size={20}
+                ring="#35205c"
+              />
+            )}
             {me ? (me.user.isGuest ? "guest" : me.user.displayName) : "····"}
             {me ? ` · balance ${me.balanceCredits.toLocaleString()}` : ""}
             {hand?.doubled ? " · DOUBLED" : ""}

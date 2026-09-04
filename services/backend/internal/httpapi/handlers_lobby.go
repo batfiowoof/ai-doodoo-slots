@@ -110,3 +110,31 @@ func (s *Server) publishStatusEvent(userID int64, status string) {
 	}
 	s.bus.Publish(bus.Event{Topic: "user", Type: "status_changed", Payload: payload})
 }
+
+// publishProfileEvent fans a display-name / avatar change out to every
+// connected client so live rooms re-render identities immediately. The
+// in-process bus covers sockets on this process; the Postgres NOTIFY lets
+// the gameserver (which owns the player sockets) relay the same event —
+// the pre-Redis stand-in for cross-process fan-out.
+func (s *Server) publishProfileEvent(userID int64, displayName string, avatarPreset string, avatarVersion int64) {
+	if s.bus == nil {
+		return
+	}
+	payload, err := json.Marshal(map[string]any{
+		"userId":        userID,
+		"displayName":   displayName,
+		"avatarPreset":  avatarPreset,
+		"avatarVersion": avatarVersion,
+	})
+	if err != nil {
+		return
+	}
+	s.bus.Publish(bus.Event{Topic: "user", Type: "profile_updated", Payload: payload})
+	if s.pool != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if _, err := s.pool.Exec(ctx, "SELECT pg_notify('profile_events', $1)", string(payload)); err != nil {
+			s.logger.Warn("profile notify", "err", err)
+		}
+	}
+}
