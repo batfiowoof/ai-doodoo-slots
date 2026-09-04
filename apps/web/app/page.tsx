@@ -90,7 +90,7 @@ export default function GameMenu() {
           displayName={session.data.user.displayName}
           avatarPreset={session.data.user.avatarPreset}
           avatarVersion={session.data.user.avatarVersion}
-          size={30}
+          size={46}
           ring="#22e8ff"
         />
       ),
@@ -102,22 +102,49 @@ export default function GameMenu() {
       label: "DEPOSIT",
       status: "+1000",
       accent: "#ff8a1f",
+      art: <img src="/sprites/money-bag.png" width={38} height={38} className="pixelated" alt="" />,
       onActivate: doDeposit,
       disabled: deposit.isPending || !session.isSuccess,
       onLaunchSound: () => {}, // the kiosk call plays its own cues
     });
     if (!session.data.user.isGuest) {
-      satellites.push({ key: "logout", label: "LOGOUT", accent: "#8878b8", href: "/auth/logout", hard: true });
+      satellites.push({
+        key: "logout",
+        label: "LOGOUT",
+        accent: "#8878b8",
+        href: "/auth/logout",
+        hard: true,
+        art: <img src="/sprites/horseshoe.png" width={38} height={38} className="pixelated" alt="" />,
+      });
     }
   } else {
-    satellites.push({ key: "login", label: "LOGIN", accent: "#22e8ff", href: "/auth/login?next=/", hard: true });
+    satellites.push({
+      key: "login",
+      label: "LOGIN",
+      accent: "#22e8ff",
+      href: "/auth/login?next=/",
+      hard: true,
+      art: <img src="/sprites/star.png" width={38} height={38} className="pixelated" alt="" />,
+    });
   }
-  satellites.push({ key: "verify", label: "VERIFY", accent: "#5fe08a", href: "/verify" });
+  satellites.push({
+    key: "verify",
+    label: "VERIFY",
+    accent: "#5fe08a",
+    href: "/verify",
+    art: <img src="/sprites/key.png" width={38} height={38} className="pixelated" alt="" />,
+  });
   if (
     session.data &&
     (session.data.user.role === "admin" || session.data.user.role === "moderator")
   ) {
-    satellites.push({ key: "staff", label: "STAFF", accent: "#ff2d95", href: "/admin" });
+    satellites.push({
+      key: "staff",
+      label: "STAFF",
+      accent: "#ff2d95",
+      href: "/admin",
+      art: <img src="/sprites/crown.png" width={38} height={38} className="pixelated" alt="" />,
+    });
   }
 
   const hub = (

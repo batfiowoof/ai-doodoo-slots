@@ -604,6 +604,27 @@ select {
   }
 }
 
+/* Prize-wheel orbit: the ring container spins from --spin-from to
+   --spin-to while each node anchor counter-rotates by the same amount,
+   so tiles stay upright and land exactly on their new slots. */
+@keyframes radSpinTo {
+  from {
+    transform: rotate(var(--spin-from));
+  }
+  to {
+    transform: rotate(var(--spin-to));
+  }
+}
+
+@keyframes radCounterSpinTo {
+  from {
+    transform: rotate(calc(-1 * var(--spin-from)));
+  }
+  to {
+    transform: rotate(calc(-1 * var(--spin-to)));
+  }
+}
+
 /* Hub easter egg: one-shot 720° whirl; ends where it started (720 ≡ 0). */
 @keyframes radSpin720 {
   to {

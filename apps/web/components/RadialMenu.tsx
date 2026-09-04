@@ -3,6 +3,11 @@
 // The lobby wheel. Nodes fan out of a central hub onto an outer ring; account
 // satellites ride a smaller inner orbit. Geometry and motion live here — the
 // lobby screen passes in node/satellite content and the hub face.
+//
+// The hub click is a prize-wheel shuffle: the whole game ring orbits the hub
+// by a few random turns (radSpinTo on the ring container) while every node
+// anchor counter-rotates by the same amount (radCounterSpinTo), so the tiles
+// stay upright and land on a fresh random slot each spin.
 
 import {
   useEffect,
@@ -49,8 +54,17 @@ const HUB_D = 280;
 const SAT_R = 225;
 const NODE_W = 200;
 const NODE_H = 136;
-const SAT_W = 140;
-const SAT_H = 62;
+// Satellites are casino chips: a round face with the label stacked below.
+const SAT_D = 94;
+const SAT_W = 132;
+const SAT_H = 144;
+
+// Prize-wheel orbit timing; the ring and its counter-rotating anchors must
+// share duration + easing so tiles land upright.
+const ORBIT_MS = 1700;
+const ORBIT_EASE = "cubic-bezier(.32,.08,.26,1)";
+const SPIN_ANIM = `radSpinTo ${ORBIT_MS}ms ${ORBIT_EASE} 1 forwards`;
+const COUNTER_ANIM = `radCounterSpinTo ${ORBIT_MS}ms ${ORBIT_EASE} 1 forwards`;
 
 function gameRadius(n: number): number {
   if (n <= 3) return 296;
@@ -84,9 +98,11 @@ export default function RadialMenu({
   hub: ReactNode;
 }) {
   const router = useRouter();
-  const [spinning, setSpinning] = useState(false);
+  const [rot, setRot] = useState(0);
+  const [spin, setSpin] = useState<{ delta: number } | null>(null);
   const [launchKey, setLaunchKey] = useState<string | null>(null);
   const timers = useRef<number[]>([]);
+  const spinning = spin !== null;
 
   useEffect(
     () => () => {
@@ -96,38 +112,50 @@ export default function RadialMenu({
   );
 
   const r = gameRadius(nodes.length);
-  const placed: PlacedNode[] = nodes.map((node, i) => ({
+  // Slot coordinates are stage-absolute here; the orbit containers below are
+  // anchored at the hub center, so children get center-relative offsets.
+  const placedGames: PlacedNode[] = nodes.map((node, i) => ({
     node,
     ...slot(i, nodes.length, r),
     delay: i * 70,
     satellite: false,
   }));
-  // Satellites interleave on the inner orbit, offset half a game step.
-  satellites.forEach((node, i) => {
+  // Satellites interleave on the inner orbit, offset half a game step. They
+  // stay put while the game ring shuffles — the wheel spins, the table doesn't.
+  const placedSats: PlacedNode[] = satellites.map((node, i) => {
     const deg = -90 + ((i + 0.5) * 360) / Math.max(satellites.length, 1);
     const rad = (deg * Math.PI) / 180;
-    placed.push({
+    return {
       node,
       x: CX + SAT_R * Math.cos(rad),
       y: CY + SAT_R * Math.sin(rad),
       delay: nodes.length * 70 + 60 + i * 60,
       satellite: true,
-    });
+    };
   });
 
-  const spin = () => {
+  const spinWheel = () => {
     if (spinning || launchKey) return;
     sound.unlock();
     sound.click();
-    setSpinning(true);
-    for (let t = 1; t <= 12; t++) {
-      timers.current.push(window.setTimeout(() => sound.winTick(t), t * 95));
+    const n = Math.max(nodes.length, 1);
+    const step = 360 / n;
+    // A couple of full turns plus a random whole slot: the cards reshuffle
+    // every spin, and always land evenly on the ring.
+    const delta =
+      (2 + Math.floor(Math.random() * 2)) * 360 + (1 + Math.floor(Math.random() * (n - 1))) * step;
+    setSpin({ delta });
+    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      for (let t = 1; t <= 14; t++) {
+        timers.current.push(window.setTimeout(() => sound.winTick(t), t * 110));
+      }
     }
     timers.current.push(
       window.setTimeout(() => {
-        setSpinning(false);
+        setRot((prev) => prev + delta);
+        setSpin(null);
         sound.bell();
-      }, 1500),
+      }, ORBIT_MS + 50),
     );
   };
 
@@ -162,28 +190,50 @@ export default function RadialMenu({
     launch(node);
   };
 
+  const orbitVars = {
+    ["--spin-from" as string]: `${rot}deg`,
+    ["--spin-to" as string]: `${rot + (spin?.delta ?? 0)}deg`,
+  };
+
   return (
     <div style={{ position: "relative", width: STAGE_W, height: STAGE_H, flex: "none" }}>
-      {/* Spoke lines hub → node, under everything. */}
-      <svg
-        width={STAGE_W}
-        height={STAGE_H}
-        style={{ position: "absolute", inset: 0, animation: "radRingIn .9s ease-out both" }}
-        aria-hidden
+      {/* Spoke lines hub → node, under everything. They rotate with the ring
+          so they always point where the cards are. */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          animation: "radRingIn .9s ease-out both",
+          pointerEvents: "none",
+          zIndex: 0,
+        }}
       >
-        {placed.map(({ x, y, satellite }) => (
-          <line
-            key={`spoke-${x}-${y}`}
-            x1={CX}
-            y1={CY}
-            x2={x}
-            y2={y}
-            stroke={satellite ? "#241640" : "#2a1848"}
-            strokeWidth={satellite ? 1 : 2}
-            strokeDasharray={satellite ? "3 9" : undefined}
-          />
-        ))}
-      </svg>
+        <svg
+          width={STAGE_W}
+          height={STAGE_H}
+          style={{
+            position: "absolute",
+            inset: 0,
+            transform: `rotate(${rot}deg)`,
+            animation: spinning ? SPIN_ANIM : undefined,
+            ...orbitVars,
+          }}
+          aria-hidden
+        >
+          {[...placedGames, ...placedSats].map(({ x, y, satellite }) => (
+            <line
+              key={`spoke-${x}-${y}`}
+              x1={CX}
+              y1={CY}
+              x2={x}
+              y2={y}
+              stroke={satellite ? "#241640" : "#2a1848"}
+              strokeWidth={satellite ? 1 : 2}
+              strokeDasharray={satellite ? "3 9" : undefined}
+            />
+          ))}
+        </svg>
+      </div>
 
       {/* Decorative rings: dashed cyan drift, crisp conic ticks, dashed pink
           counter-drift. They draw in, then rotate forever. */}
@@ -228,7 +278,7 @@ export default function RadialMenu({
       >
         <button
           type="button"
-          onClick={spin}
+          onClick={spinWheel}
           title="SPIN THE HOUSE"
           style={{
             position: "absolute",
@@ -253,19 +303,54 @@ export default function RadialMenu({
         </button>
       </div>
 
-      {placed.map(({ node, x, y, delay, satellite }) => (
-        <WheelNode
-          key={node.key}
-          node={node}
-          x={x}
-          y={y}
-          delay={delay}
-          satellite={satellite}
-          spinning={spinning}
-          launchKey={launchKey}
-          onActivate={activate}
-        />
-      ))}
+      {/* The game ring: one rotating container, nodes counter-rotated inside
+          so the cards orbit the hub but never tilt. */}
+      <div
+        style={{
+          position: "absolute",
+          left: CX,
+          top: CY,
+          width: 0,
+          height: 0,
+          zIndex: 2,
+          transform: `rotate(${rot}deg)`,
+          animation: spinning ? SPIN_ANIM : undefined,
+          ...orbitVars,
+        }}
+      >
+        {placedGames.map(({ node, x, y, delay }) => (
+          <WheelNode
+            key={node.key}
+            node={node}
+            x={x - CX}
+            y={y - CY}
+            delay={delay}
+            orbit
+            counterRot={rot}
+            spinning={spinning}
+            launchKey={launchKey}
+            onActivate={activate}
+          />
+        ))}
+      </div>
+
+      {/* Action chips: not part of the shuffle. */}
+      <div style={{ position: "absolute", left: CX, top: CY, width: 0, height: 0, zIndex: 2 }}>
+        {placedSats.map(({ node, x, y, delay }) => (
+          <WheelNode
+            key={node.key}
+            node={node}
+            x={x - CX}
+            y={y - CY}
+            delay={delay}
+            orbit={false}
+            counterRot={0}
+            spinning={spinning}
+            launchKey={launchKey}
+            onActivate={activate}
+          />
+        ))}
+      </div>
 
       {/* Warp flash on launch — portaled so the stage's scale() can't dim it. */}
       {launchKey &&
@@ -307,7 +392,8 @@ function WheelNode({
   x,
   y,
   delay,
-  satellite,
+  orbit,
+  counterRot,
   spinning,
   launchKey,
   onActivate,
@@ -316,19 +402,31 @@ function WheelNode({
   x: number;
   y: number;
   delay: number;
-  satellite: boolean;
+  /** Inside the rotating ring container: counter-rotate to stay upright. */
+  orbit: boolean;
+  counterRot: number;
   spinning: boolean;
   launchKey: string | null;
   onActivate: (node: RadialNode, e?: MouseEvent) => void;
 }) {
   const [hover, setHover] = useState(false);
-  const dx = CX - x;
-  const dy = CY - y;
-  const w = satellite ? SAT_W : NODE_W;
-  const h = satellite ? SAT_H : NODE_H;
+  const dx = -x;
+  const dy = -y;
+  const w = orbit ? NODE_W : SAT_W;
+  const h = orbit ? NODE_H : SAT_H;
 
   const launching = launchKey === node.key;
   const retracting = launchKey !== null && !launching;
+
+  const anchor: CSSProperties = {
+    position: "absolute",
+    left: x,
+    top: y,
+    width: 0,
+    height: 0,
+    transform: orbit ? `rotate(${-counterRot}deg)` : undefined,
+    animation: orbit && spinning ? COUNTER_ANIM : undefined,
+  };
 
   const layer: CSSProperties = {
     position: "absolute",
@@ -350,84 +448,94 @@ function WheelNode({
     ["--dx" as string]: `${dx}px`,
     ["--dy" as string]: `${dy}px`,
     animation: `radNodeIn .55s cubic-bezier(.2,1.4,.4,1) ${delay}ms both${
-      spinning ? ", radWobble .5s ease-in-out infinite" : ""
+      spinning && !orbit ? ", radWobble .5s ease-in-out infinite" : ""
     }`,
   };
 
-  const tile: CSSProperties = {
-    width: "100%",
-    height: "100%",
-    boxSizing: "border-box",
-    display: "flex",
-    flexDirection: satellite ? "row" : "column",
-    alignItems: "center",
-    justifyContent: satellite ? (node.art ? "flex-start" : "center") : "space-between",
-    gap: satellite ? 10 : 0,
-    padding: satellite ? "0 12px" : "10px 12px 8px",
-    background: satellite ? "linear-gradient(#1d1036,#120a26)" : "linear-gradient(#170c2b,#0d0619)",
-    border: `2px solid ${hover || (node.live && !satellite) ? node.accent : "#35205c"}`,
-    color: "inherit",
-    textDecoration: "none",
-    cursor: node.disabled ? "default" : "pointer",
-    opacity: node.disabled ? 0.55 : 1,
-    boxShadow: hover ? `0 0 34px ${node.accent}80` : `0 0 22px ${node.accent}26`,
-    ["--pulse" as string]: `${node.accent}99`,
-    animation: node.live && !satellite ? "radLivePulse 1.7s ease-in-out infinite" : undefined,
+  const tile: CSSProperties = orbit
+    ? {
+        width: "100%",
+        height: "100%",
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 0,
+        padding: "10px 12px 8px",
+        background: "linear-gradient(#170c2b,#0d0619)",
+        border: `2px solid ${hover || (node.live && !orbit) ? node.accent : "#35205c"}`,
+        color: "inherit",
+        textDecoration: "none",
+        cursor: node.disabled ? "default" : "pointer",
+        opacity: node.disabled ? 0.55 : 1,
+        boxShadow: hover ? `0 0 34px ${node.accent}80` : `0 0 22px ${node.accent}26`,
+        ["--pulse" as string]: `${node.accent}99`,
+        animation: node.live ? "radLivePulse 1.7s ease-in-out infinite" : undefined,
+      }
+    : {
+        width: "100%",
+        height: "100%",
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "flex-start",
+        gap: 7,
+        background: "transparent",
+        border: "none",
+        padding: 0,
+        color: "inherit",
+        textDecoration: "none",
+        cursor: node.disabled ? "default" : "pointer",
+        opacity: node.disabled ? 0.55 : 1,
+      };
+
+  // Round chip face with a dashed edge print, like a poker chip.
+  const chip: CSSProperties = {
+    width: SAT_D,
+    height: SAT_D,
+    borderRadius: "50%",
+    position: "relative",
+    display: "grid",
+    placeItems: "center",
+    border: `2px solid ${hover ? node.accent : "#4a3a72"}`,
+    background: "linear-gradient(#1d1036,#0d0619 80%)",
+    boxShadow: hover ? `0 0 32px ${node.accent}80` : `0 0 16px ${node.accent}26`,
+    transition: "border-color 160ms ease-out, box-shadow 160ms ease-out",
+    flex: "none",
+  };
+  const chipRing: CSSProperties = {
+    position: "absolute",
+    inset: 5,
+    borderRadius: "50%",
+    border: `1px dashed ${hover ? `${node.accent}aa` : "#4a3a72"}`,
+    pointerEvents: "none",
   };
 
   const label = (
     <span
       style={{
         fontFamily: "var(--font-display)",
-        fontSize: satellite ? 11 : 13,
+        fontSize: orbit ? 13 : 11,
         letterSpacing: 1,
-        lineHeight: satellite ? undefined : 1.3,
-        color: hover ? "#fff" : satellite ? "#cfc4f2" : node.accent,
+        lineHeight: orbit ? 1.3 : undefined,
+        color: hover ? "#fff" : orbit ? node.accent : "#cfc4f2",
         textShadow: hover ? `0 0 10px ${node.accent}` : `0 0 8px ${node.accent}59`,
         overflow: "hidden",
-        textOverflow: satellite ? "ellipsis" : undefined,
-        whiteSpace: satellite ? "nowrap" : "normal",
-        flex: satellite ? undefined : 1,
-        minWidth: satellite ? undefined : 0,
-        maxWidth: satellite ? (node.art ? 86 : "100%") : "100%",
+        textOverflow: orbit ? undefined : "ellipsis",
+        whiteSpace: orbit ? "normal" : "nowrap",
+        flex: orbit ? 1 : undefined,
+        minWidth: orbit ? 0 : undefined,
+        maxWidth: orbit ? "100%" : SAT_W,
+        textAlign: "center",
       }}
     >
       {node.label}
     </span>
   );
 
-  const inner = satellite ? (
-    node.art ? (
-      <>
-        {node.art}
-        <span style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
-          {label}
-          {node.status && (
-            <span style={{ fontFamily: "var(--font-body)", fontSize: 15, lineHeight: 1, color: node.accent }}>
-              {node.status}
-            </span>
-          )}
-        </span>
-      </>
-    ) : (
-      <span
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: 2,
-          width: "100%",
-        }}
-      >
-        {label}
-        {node.status && (
-          <span style={{ fontFamily: "var(--font-body)", fontSize: 15, lineHeight: 1, color: node.accent }}>
-            {node.status}
-          </span>
-        )}
-      </span>
-    )
-  ) : (
+  const inner = orbit ? (
     <>
       <span
         style={{
@@ -484,6 +592,38 @@ function WheelNode({
         </span>
       )}
     </>
+  ) : (
+    <>
+      <span style={chip}>
+        <span style={chipRing} />
+        {node.art ?? (
+          <span
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 24,
+              color: node.accent,
+              textShadow: `0 0 10px ${node.accent}`,
+            }}
+          >
+            {node.label.slice(0, 1)}
+          </span>
+        )}
+      </span>
+      {label}
+      {node.status && (
+        <span
+          style={{
+            fontFamily: "var(--font-body)",
+            fontSize: 14,
+            lineHeight: 1.1,
+            color: node.accent,
+            textAlign: "center",
+          }}
+        >
+          {node.status}
+        </span>
+      )}
+    </>
   );
 
   const enter = (e: MouseEvent) => {
@@ -497,12 +637,8 @@ function WheelNode({
   return (
     <div
       style={{
-        position: "absolute",
-        left: x,
-        top: y,
-        width: 0,
-        height: 0,
-        zIndex: launching ? 6 : node.live && !satellite ? 3 : satellite ? 2 : 2,
+        ...anchor,
+        zIndex: launching ? 6 : node.live && orbit ? 3 : 2,
       }}
     >
       <div style={layer}>
