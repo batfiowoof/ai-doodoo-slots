@@ -77,7 +77,8 @@ interface RoomInfo {
   capacity: number;
 }
 
-const WS_URL =
+// Resolved lazily: module scope runs during SSR where `location` is absent.
+const wsUrl = () =>
   process.env.NEXT_PUBLIC_WS_URL ??
   (typeof location !== "undefined" && location.port === "3000"
     ? "ws://localhost:8080/api/v1/ws"
@@ -135,7 +136,7 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
 
     const connect = () => {
       if (closed) return;
-      const ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(wsUrl());
       wsRef.current = ws;
 
       ws.onopen = () => {
