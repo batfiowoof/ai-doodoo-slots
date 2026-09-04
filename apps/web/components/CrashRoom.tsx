@@ -192,9 +192,10 @@ export default function CrashRoom({ slug }: { slug: string }) {
   );
 
   // T-minus countdown while bets are open. Purely visual — the server
-  // decides when betting actually locks.
+  // decides when betting actually locks. Frozen while disconnected so a
+  // dead link never shows a fake free-running countdown.
   useEffect(() => {
-    if (state !== "betting_open") return;
+    if (state !== "betting_open" || !connected) return;
     const id = window.setInterval(() => {
       const left = Math.max(0, BETTING_MS - (performance.now() - betOpenAtRef.current));
       const secs = Math.ceil(left / 1000);
@@ -205,7 +206,7 @@ export default function CrashRoom({ slug }: { slug: string }) {
       }
     }, 100);
     return () => window.clearInterval(id);
-  }, [state]);
+  }, [state, connected]);
 
   // Socket lifecycle: connect once, rejoin the room on (re)connect — or run
   // a local demo loop in dev when ?demo= is on the URL.
