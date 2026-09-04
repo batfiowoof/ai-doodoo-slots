@@ -135,6 +135,7 @@ func (r *Runner) LiveState() map[string]any {
 		"roundId":       id,
 		"state":         string(m.State()),
 		"multiplier":    mult,
+		"msLeft":        m.PhaseMsLeft(r.clk.Now()),
 		"recentCrashes": history,
 		"stakes":        m.StakesView(),
 	}
@@ -192,7 +193,7 @@ func (r *Runner) runRound(ctx context.Context) error {
 	// Announce betting_open: Step only broadcasts transitions, so without
 	// an explicit opening event clients never see the betting phase begin
 	// and keep rendering the previous round until locked.
-	r.publish(m.InitialEvent())
+	r.publish(m.InitialEvent(r.clk.Now()))
 	defer func() {
 		r.liveMu.Lock()
 		r.live, r.liveID = nil, 0

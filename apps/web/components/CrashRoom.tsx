@@ -27,6 +27,7 @@ interface RoomSnapshot {
     roundId: number;
     state: RoundState;
     multiplier: number;
+    msLeft?: number; // ms remaining in the current phase (server clock)
     recentCrashes: number[];
     stakes: Stake[];
   } | null;
@@ -105,6 +106,7 @@ export default function CrashRoom({ slug }: { slug: string }) {
     balanceCredits?: number;
     betCredits?: number;
     payoutCredits?: number;
+    msLeft?: number;
     code?: string;
     slug?: string;
   }
@@ -146,7 +148,7 @@ export default function CrashRoom({ slug }: { slug: string }) {
   }, []);
 
   const applyPhase = useCallback(
-    (next: RoundState) => {
+    (next: RoundState, msLeft?: number) => {
       setState(next);
       sceneRef.current?.setPhase(scenePhaseOf(next));
       if (next === "betting_open") {
@@ -156,8 +158,12 @@ export default function CrashRoom({ slug }: { slug: string }) {
         setLastCashoutAt(null);
         lastMRef.current = 1;
         beepedRef.current = 99;
-        betOpenAtRef.current = performance.now();
-        setTMinus(Math.ceil(BETTING_MS / 1000));
+        // Anchor the countdown to the server's remaining time when it
+        // provides one (refresh mid-window, transition events), otherwise
+        // assume a full window.
+        const left = msLeft !== undefined ? Math.max(0, msLeft) : BETTING_MS;
+        betOpenAtRef.current = performance.now() - (BETTING_MS - left);
+        setTMinus(Math.ceil(left / 1000));
         sound.engineStop();
         void qc.invalidateQueries({ queryKey: ["me"] });
       } else if (next === "locked") {
@@ -328,7 +334,7 @@ export default function CrashRoom({ slug }: { slug: string }) {
               lastMRef.current = snap.round.multiplier || 1;
               sceneRef.current?.setMultiplier(snap.round.multiplier || 1);
               setCrashed(s === "settled");
-              applyPhase(s);
+              applyPhase(s, snap.round.msLeft);
               if (s === "settled") {
                 // Place the wreck at the restored crash point.
                 sceneRef.current?.setCrash(snap.round.multiplier || 1);
@@ -339,7 +345,7 @@ export default function CrashRoom({ slug }: { slug: string }) {
           case "round_state": {
             const next = p.state as RoundState;
             if (next === "betting_open" || next === "running" || next === "locked" || next === "settled") {
-              applyPhase(next);
+              applyPhase(next, p.msLeft);
             }
             break;
           }

@@ -150,7 +150,7 @@ func (m *Machine) Step(now time.Time) []Event {
 	}
 	m.state = next
 	m.phaseStart = m.phaseStart.Add(limit)
-	events = append(events, m.stateEvent())
+	events = append(events, m.stateEvent(now))
 
 	switch next {
 	case game.PhaseRunning:
@@ -200,18 +200,53 @@ func (m *Machine) emitTicks(now time.Time) []Event {
 	return events
 }
 
-func (m *Machine) stateEvent() Event {
-	payload, _ := json.Marshal(map[string]any{"state": string(m.state)})
+func (m *Machine) stateEvent(now time.Time) Event {
+	// Caller holds stateMu (write in Step, read in InitialEvent).
+	payload, _ := json.Marshal(map[string]any{
+		"state":  string(m.state),
+		"msLeft": m.phaseMsLeftLocked(now),
+	})
 	return Event{Room: m.room, Type: EventStateChanged, Payload: payload}
 }
 
 // InitialEvent returns the state event for the machine's opening phase.
 // Step only broadcasts transitions, so without this the betting_open phase
 // is invisible to connected clients until the switch to locked.
-func (m *Machine) InitialEvent() Event {
+func (m *Machine) InitialEvent(now time.Time) Event {
 	m.stateMu.RLock()
 	defer m.stateMu.RUnlock()
-	return m.stateEvent()
+	return m.stateEvent(now)
+}
+
+// PhaseMsLeft reports milliseconds remaining in the current phase so
+// clients that join (or refresh) mid-phase can sync their countdowns.
+func (m *Machine) PhaseMsLeft(now time.Time) int64 {
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
+	return m.phaseMsLeftLocked(now)
+}
+
+// phaseMsLeftLocked is PhaseMsLeft without locking; callers hold stateMu.
+func (m *Machine) phaseMsLeftLocked(now time.Time) int64 {
+	var limit time.Duration
+	switch m.state {
+	case game.PhaseBettingOpen:
+		limit = m.cfg.BettingOpen
+	case game.PhaseLocked:
+		limit = m.cfg.Locked
+	case game.PhaseRunning:
+		limit = m.runningDur
+		if limit > m.cfg.MaxRunning {
+			limit = m.cfg.MaxRunning
+		}
+	case game.PhaseSettled:
+		limit = m.cfg.Settled
+	}
+	left := m.phaseStart.Add(limit).Sub(now)
+	if left < 0 {
+		left = 0
+	}
+	return left.Milliseconds()
 }
 
 func (m *Machine) resultEvent() Event {
