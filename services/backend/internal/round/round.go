@@ -205,6 +205,15 @@ func (m *Machine) stateEvent() Event {
 	return Event{Room: m.room, Type: EventStateChanged, Payload: payload}
 }
 
+// InitialEvent returns the state event for the machine's opening phase.
+// Step only broadcasts transitions, so without this the betting_open phase
+// is invisible to connected clients until the switch to locked.
+func (m *Machine) InitialEvent() Event {
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
+	return m.stateEvent()
+}
+
 func (m *Machine) resultEvent() Event {
 	return Event{Room: m.room, Type: EventResult, Payload: m.result.Payload}
 }

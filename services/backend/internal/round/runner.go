@@ -189,6 +189,10 @@ func (r *Runner) runRound(ctx context.Context) error {
 	r.liveMu.Lock()
 	r.live, r.liveID = m, roundID
 	r.liveMu.Unlock()
+	// Announce betting_open: Step only broadcasts transitions, so without
+	// an explicit opening event clients never see the betting phase begin
+	// and keep rendering the previous round until locked.
+	r.publish(m.InitialEvent())
 	defer func() {
 		r.liveMu.Lock()
 		r.live, r.liveID = nil, 0

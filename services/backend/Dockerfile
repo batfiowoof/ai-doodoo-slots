@@ -15,4 +15,6 @@ COPY --from=build /out/api /usr/local/bin/api
 COPY --from=build /out/migrate /usr/local/bin/migrate
 COPY --from=build /out/gameserver /usr/local/bin/gameserver
 EXPOSE 8080 8082
-ENTRYPOINT ["api"]
+# CMD, not ENTRYPOINT: compose overrides the command per service
+# (migrate/api/gameserver). An ENTRYPOINT would force the api binary everywhere.
+CMD ["api"]
