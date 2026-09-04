@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { Avatar } from "@/components/Avatar";
+import NeonDialog from "@/components/NeonDialog";
 import { sound } from "@/lib/sound";
 import {
   useDeleteAvatar,
@@ -31,15 +31,6 @@ export function AccountModal({ open, onClose }: { open: boolean; onClose: () => 
   const [note, setNote] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  useEffect(() => {
     if (!note) return;
     const t = setTimeout(() => setNote(null), 2600);
     return () => clearTimeout(t);
@@ -49,110 +40,35 @@ export function AccountModal({ open, onClose }: { open: boolean; onClose: () => 
 
   const accent = tab === "profile" ? "#22e8ff" : "#5fe08a";
 
-  // Portal to the body: the lobby wraps its content in a scale() transform,
-  // and position:fixed inside a transformed ancestor centers against that
-  // ancestor instead of the viewport.
-  return createPortal(
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(6,4,13,.86)",
-        zIndex: 90,
-        display: "grid",
-        placeItems: "center",
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: 860,
-          maxWidth: "calc(100vw - 40px)",
-          maxHeight: "calc(100vh - 40px)",
-          overflowY: "auto",
-          background: "#0f0720",
-          border: `2px solid ${accent}`,
-          boxShadow: `0 0 60px rgba(34,232,255,.35), inset 0 0 0 1px #241640`,
-          animation: "bigPop .3s cubic-bezier(.2,1.4,.4,1) both",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
+  return (
+    <NeonDialog open={open} onClose={onClose} title="◆ ACCOUNT" accent={accent} width={980}>
+      <IdentityStrip me={me} />
+      <TabRow tab={tab} onTab={(t) => { sound.click(); setTab(t); }} />
+      {tab === "profile" ? (
+        <ProfileTab key={me.user.displayName} me={me} onNote={setNote} />
+      ) : (
+        <SecurityTab me={me} onNote={setNote} />
+      )}
+
+      {note && (
         <div
+          role="status"
           style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            background: "#150a2a",
-            borderBottom: "2px solid #241640",
-            padding: "10px 16px",
-            position: "sticky",
-            top: 0,
-            zIndex: 2,
+            margin: "0 20px 16px",
+            border: `2px solid ${accent}`,
+            background: "#06040d",
+            color: accent,
+            fontFamily: "var(--font-display)",
+            fontSize: 14,
+            letterSpacing: 2,
+            padding: "10px 14px",
+            animation: "notePop .2s ease-out both",
           }}
         >
-          <span
-            style={{
-              fontFamily: "var(--font-display)",
-              fontSize: 16,
-              letterSpacing: 6,
-              color: accent,
-              textShadow: `0 0 14px ${accent}`,
-            }}
-          >
-            ◆ ACCOUNT
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              sound.click();
-              onClose();
-            }}
-            style={{
-              border: "1px solid #35205c",
-              background: "transparent",
-              color: "#8878b8",
-              fontFamily: "var(--font-display)",
-              fontSize: 10,
-              letterSpacing: 2,
-              padding: "6px 10px",
-              cursor: "pointer",
-            }}
-          >
-            CLOSE ✕
-          </button>
+          {note}
         </div>
-
-        <IdentityStrip me={me} />
-        <TabRow tab={tab} onTab={(t) => { sound.click(); setTab(t); }} />
-        {tab === "profile" ? (
-          <ProfileTab key={me.user.displayName} me={me} onNote={setNote} />
-        ) : (
-          <SecurityTab me={me} onNote={setNote} />
-        )}
-
-        {note && (
-          <div
-            role="status"
-            style={{
-              margin: "0 16px 14px",
-              border: `2px solid ${accent}`,
-              background: "#06040d",
-              color: accent,
-              fontFamily: "var(--font-display)",
-              fontSize: 11,
-              letterSpacing: 2,
-              padding: "8px 12px",
-              animation: "notePop .2s ease-out both",
-            }}
-          >
-            {note}
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body,
+      )}
+    </NeonDialog>
   );
 }
 
@@ -179,7 +95,7 @@ function IdentityStrip({ me }: { me: Me }) {
         <span
           style={{
             fontFamily: "var(--font-display)",
-            fontSize: 22,
+            fontSize: 24,
             letterSpacing: 2,
             color: "#ece6ff",
             textShadow: "0 0 12px rgba(157,77,255,.6)",
@@ -212,12 +128,12 @@ function Badge({ color, bg, children }: { color: string; bg: string; children: R
     <span
       style={{
         fontFamily: "var(--font-display)",
-        fontSize: 9,
+        fontSize: 12,
         letterSpacing: 2,
         color,
         background: bg,
         border: `1px solid ${color}55`,
-        padding: "3px 7px",
+        padding: "4px 9px",
       }}
     >
       {children}
@@ -241,9 +157,9 @@ function TabRow({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
             onClick={() => onTab(t.id)}
             style={{
               fontFamily: "var(--font-display)",
-              fontSize: 11,
+              fontSize: 16,
               letterSpacing: 3,
-              padding: "8px 18px",
+              padding: "10px 22px",
               cursor: "pointer",
               border: `2px solid ${active ? t.color : "#35205c"}`,
               background: active ? "#06040d" : "#150a2a",
@@ -372,7 +288,7 @@ function ProfileTab({ me, onNote }: { me: Me; onNote: (s: string) => void }) {
             onClick={saveName}
             style={{
               fontFamily: "var(--font-display)",
-              fontSize: 11,
+              fontSize: 14,
               letterSpacing: 2,
               padding: "0 22px",
               cursor: dirty ? "pointer" : "not-allowed",
@@ -384,7 +300,7 @@ function ProfileTab({ me, onNote }: { me: Me; onNote: (s: string) => void }) {
             {update.isPending ? "SAVING…" : "SAVE"}
           </button>
         </div>
-        <span style={{ fontFamily: "var(--font-body)", fontSize: 16, color: "#5c4f80" }}>
+        <span style={{ fontFamily: "var(--font-body)", fontSize: 20, color: "#5c4f80" }}>
           3–20 CHARS · LETTERS, DIGITS, SPACE, _ AND - · ONE CHANGE PER DAY
         </span>
       </div>
@@ -429,12 +345,12 @@ function ProfileTab({ me, onNote }: { me: Me; onNote: (s: string) => void }) {
               href="/auth/login?next=/"
               style={{
                 fontFamily: "var(--font-display)",
-                fontSize: 10,
+                fontSize: 13,
                 letterSpacing: 2,
                 color: "#ffb15c",
                 border: "1px solid #6b4a1c",
                 background: "#2a1406",
-                padding: "7px 12px",
+                padding: "9px 14px",
                 textDecoration: "none",
               }}
             >
@@ -485,7 +401,7 @@ function ProfileTab({ me, onNote }: { me: Me; onNote: (s: string) => void }) {
               ✕ REMOVE
             </button>
           )}
-          <span style={{ fontFamily: "var(--font-body)", fontSize: 16, color: "#5c4f80" }}>
+          <span style={{ fontFamily: "var(--font-body)", fontSize: 20, color: "#5c4f80" }}>
             UPLOADS GET PIXELATED TO 64×64
           </span>
         </div>
@@ -499,9 +415,9 @@ function ProfileTab({ me, onNote }: { me: Me; onNote: (s: string) => void }) {
             background: "#06040d",
             color: "#ff8a1f",
             fontFamily: "var(--font-display)",
-            fontSize: 11,
+            fontSize: 14,
             letterSpacing: 2,
-            padding: "8px 12px",
+            padding: "10px 14px",
           }}
         >
           ! {error}
@@ -514,9 +430,9 @@ function ProfileTab({ me, onNote }: { me: Me; onNote: (s: string) => void }) {
 function uploadBtn(pending: boolean): React.CSSProperties {
   return {
     fontFamily: "var(--font-display)",
-    fontSize: 10,
+    fontSize: 13,
     letterSpacing: 2,
-    padding: "7px 12px",
+    padding: "9px 14px",
     cursor: pending ? "wait" : "pointer",
     border: "1px solid #4a3a72",
     background: "#1d1036",
@@ -529,7 +445,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
     <div
       style={{
         fontFamily: "var(--font-display)",
-        fontSize: 10,
+        fontSize: 13,
         letterSpacing: 3,
         color: "#8878b8",
         marginBottom: 6,
@@ -551,7 +467,7 @@ function SecurityTab({ me, onNote }: { me: Me; onNote: (s: string) => void }) {
         <div style={{ minWidth: 260 }}>
           <FieldLabel>EMAIL</FieldLabel>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontFamily: "var(--font-body)", fontSize: 22, color: "#ece6ff" }}>
+            <span style={{ fontFamily: "var(--font-body)", fontSize: 24, color: "#ece6ff" }}>
               {u.email ?? "—"}
             </span>
             {u.email &&
@@ -572,12 +488,12 @@ function SecurityTab({ me, onNote }: { me: Me; onNote: (s: string) => void }) {
             style={{
               display: "inline-block",
               fontFamily: "var(--font-display)",
-              fontSize: 10,
+              fontSize: 13,
               letterSpacing: 2,
               color: "#5fe08a",
               border: "2px solid #5fe08a",
               background: "#0b2a33",
-              padding: "7px 12px",
+              padding: "9px 14px",
               textDecoration: "none",
             }}
           >
@@ -591,11 +507,12 @@ function SecurityTab({ me, onNote }: { me: Me; onNote: (s: string) => void }) {
           style={{
             border: "2px solid #ffb15c",
             background: "#1d1000",
-            padding: "10px 14px",
+            padding: "12px 16px",
             fontFamily: "var(--font-display)",
-            fontSize: 10,
+            fontSize: 13,
             letterSpacing: 2,
             color: "#ffb15c",
+            lineHeight: 1.5,
           }}
         >
           YOU ARE PLAYING AS A GUEST — CREDITS AND STATS ARE ONLY SAVED IN THIS BROWSER.{" "}
@@ -609,11 +526,11 @@ function SecurityTab({ me, onNote }: { me: Me; onNote: (s: string) => void }) {
       <div>
         <FieldLabel>ACTIVE SESSIONS</FieldLabel>
         {sessions.isLoading ? (
-          <span style={{ fontFamily: "var(--font-body)", fontSize: 18, color: "#5c4f80" }}>
+          <span style={{ fontFamily: "var(--font-body)", fontSize: 20, color: "#5c4f80" }}>
             READING…
           </span>
         ) : (sessions.data?.length ?? 0) === 0 ? (
-          <span style={{ fontFamily: "var(--font-body)", fontSize: 18, color: "#5c4f80" }}>
+          <span style={{ fontFamily: "var(--font-body)", fontSize: 20, color: "#5c4f80" }}>
             NO APP SESSIONS — YOUR LOGIN LIVES IN THE BROWSER.
           </span>
         ) : (
@@ -630,10 +547,10 @@ function SecurityTab({ me, onNote }: { me: Me; onNote: (s: string) => void }) {
                   padding: "6px 10px",
                 }}
               >
-                <span style={{ fontFamily: "var(--font-body)", fontSize: 18, color: "#cfc4f2", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <span style={{ fontFamily: "var(--font-body)", fontSize: 20, color: "#cfc4f2", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {s.userAgent || "UNKNOWN DEVICE"}
                 </span>
-                <span style={{ fontFamily: "var(--font-body)", fontSize: 18, color: "#5c4f80" }}>
+                <span style={{ fontFamily: "var(--font-body)", fontSize: 20, color: "#5c4f80" }}>
                   {s.ip ?? "—"}
                 </span>
                 <button
@@ -647,9 +564,9 @@ function SecurityTab({ me, onNote }: { me: Me; onNote: (s: string) => void }) {
                   }}
                   style={{
                     fontFamily: "var(--font-display)",
-                    fontSize: 9,
+                    fontSize: 12,
                     letterSpacing: 2,
-                    padding: "4px 8px",
+                    padding: "6px 10px",
                     cursor: "pointer",
                     border: "1px solid #f2643d",
                     background: "#2d0a1e",
@@ -662,7 +579,7 @@ function SecurityTab({ me, onNote }: { me: Me; onNote: (s: string) => void }) {
             ))}
           </div>
         )}
-        <span style={{ fontFamily: "var(--font-body)", fontSize: 16, color: "#5c4f80" }}>
+        <span style={{ fontFamily: "var(--font-body)", fontSize: 20, color: "#5c4f80" }}>
           REVOKING YOUR CURRENT SESSION LOGS YOU OUT.
         </span>
       </div>

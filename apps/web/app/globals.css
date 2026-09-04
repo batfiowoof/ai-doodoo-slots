@@ -561,6 +561,146 @@ select {
   }
 }
 
+/* ---------- lobby radial menu ---------- */
+
+/* Node flies out from the hub to its slot; --dx/--dy is the vector from the
+   slot back to the hub center, set inline per node. */
+@keyframes radNodeIn {
+  0% {
+    transform: translate(var(--dx, 0px), var(--dy, 0px)) scale(0.2);
+    opacity: 0;
+  }
+  55% {
+    opacity: 1;
+  }
+  74% {
+    transform: translate(calc(var(--dx, 0px) * -0.07), calc(var(--dy, 0px) * -0.07)) scale(1.09);
+  }
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* Decorative ring draws itself outward on load. */
+@keyframes radRingIn {
+  from {
+    transform: scale(0.55);
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Continuous ring rotation (slow drift, sweep, reverse). */
+@keyframes radSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Hub easter egg: one-shot 720° whirl; ends where it started (720 ≡ 0). */
+@keyframes radSpin720 {
+  to {
+    transform: rotate(720deg);
+  }
+}
+
+/* Nodes wobble in place while the hub whirls. */
+@keyframes radWobble {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(2.4deg);
+  }
+  75% {
+    transform: rotate(-2.4deg);
+  }
+}
+
+/* Live node breathes; --pulse carries the per-room accent. */
+@keyframes radLivePulse {
+  0%,
+  100% {
+    box-shadow: 0 0 16px var(--pulse, rgba(34, 232, 255, 0.4));
+  }
+  50% {
+    box-shadow: 0 0 38px var(--pulse, rgba(34, 232, 255, 0.8));
+  }
+}
+
+/* Node icon hops when the node is hovered. */
+@keyframes radIconBob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+/* Selected node lunges at the viewer while the rest retract. */
+@keyframes radLaunch {
+  0% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  100% {
+    transform: scale(1.8);
+    filter: brightness(1.9);
+    opacity: 0.85;
+  }
+}
+
+@keyframes radRetract {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--dx, 0px), var(--dy, 0px)) scale(0.2);
+    opacity: 0;
+  }
+}
+
+/* Full-screen warp flash on launch. */
+@keyframes radFlash {
+  0% {
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Hub chip breathes pink ↔ cyan. */
+@keyframes radHubGlow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 34px rgba(255, 45, 149, 0.4),
+      0 0 110px rgba(255, 45, 149, 0.16),
+      inset 0 0 0 2px #35205c;
+  }
+  50% {
+    box-shadow:
+      0 0 50px rgba(34, 232, 255, 0.55),
+      0 0 130px rgba(34, 232, 255, 0.2),
+      inset 0 0 0 2px #4a3a72;
+  }
+}
+
 /* ---------- reduced motion ---------- */
 
 @media (prefers-reduced-motion: reduce) {

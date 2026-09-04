@@ -7,6 +7,7 @@ import Backdrop from "@/components/Backdrop";
 import Chip, { ChipStack } from "@/components/Chip";
 import PlayingCard from "@/components/PlayingCard";
 import { Avatar } from "@/components/Avatar";
+import NeonDialog from "@/components/NeonDialog";
 import { useSession } from "@/lib/api";
 import type { Me, ProfileUpdatedEvent } from "@/lib/types";
 import { sound } from "@/lib/sound";
@@ -929,7 +930,7 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
                 <span
                   style={{
                     fontFamily: "var(--font-display)",
-                    fontSize: 14,
+                    fontSize: 18,
                     letterSpacing: 4,
                     color: "#5c4f80",
                   }}
@@ -984,9 +985,9 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
                         <span
                           style={{
                             fontFamily: "var(--font-display)",
-                            fontSize: 13,
+                            fontSize: 16,
                             color: isWinner ? "#c8ffd9" : "#cfc4f2",
-                            minWidth: 130,
+                            minWidth: 160,
                           }}
                         >
                           {r.displayName}
@@ -994,7 +995,7 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
                         <span
                           style={{
                             fontFamily: "var(--font-body)",
-                            fontSize: 19,
+                            fontSize: 22,
                             color: isWinner ? "#5fe08a" : "#8878b8",
                             minWidth: 140,
                           }}
@@ -1020,7 +1021,7 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
                 <span
                   style={{
                     fontFamily: "var(--font-display)",
-                    fontSize: 11,
+                    fontSize: 14,
                     letterSpacing: 3,
                     color: "#5c4f80",
                     animation: "hintBlink 1.6s steps(1) infinite",
@@ -1035,120 +1036,100 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
       )}
 
       {/* Buy-in modal */}
-      {buyOpen && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            zIndex: 12,
-            background: "rgba(6,4,13,.86)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <div
-            style={{
-              width: 480,
-              background: "#0f0720",
-              border: "2px solid #5fe08a",
-              boxShadow: "0 0 50px rgba(95,224,138,.3)",
-              padding: 24,
-              display: "flex",
-              flexDirection: "column",
-              gap: 16,
-              animation: "bigPop .3s cubic-bezier(.2,1.4,.4,1) both",
-            }}
-          >
-            <span style={{ fontFamily: "var(--font-display)", fontSize: 16, letterSpacing: 4, color: "#5fe08a" }}>
-              BUY IN — {room.name.toUpperCase()}
+      <NeonDialog
+        open={buyOpen}
+        onClose={() => setBuyOpen(false)}
+        title={`BUY IN — ${room.name.toUpperCase()}`}
+        accent="#5fe08a"
+        width={640}
+        dismissOnBackdrop={false}
+      >
+        <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <ChipStack amount={parseInt(buyAmount, 10) || room.minBet * 20} color="green" chipSize={40} />
+            <span style={{ fontFamily: "var(--font-body)", fontSize: 19, color: "#8878b8" }}>
+              {room.minBet * 20} – {room.maxBet.toLocaleString()} credits · blinds {room.minBet / 2}/{room.minBet}
             </span>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <ChipStack amount={parseInt(buyAmount, 10) || room.minBet * 20} color="green" chipSize={40} />
-              <span style={{ fontFamily: "var(--font-body)", fontSize: 19, color: "#8878b8" }}>
-                {room.minBet * 20} – {room.maxBet.toLocaleString()} credits · blinds {room.minBet / 2}/{room.minBet}
-              </span>
-            </div>
-            <input
-              value={buyAmount}
-              onChange={(e) => setBuyAmount(e.target.value.replace(/[^0-9]/g, ""))}
-              style={{
-                fontFamily: "var(--font-body)",
-                fontSize: 30,
-                background: "#06040d",
-                border: "2px solid #35205c",
-                color: "#ff8a1f",
-                padding: "8px 12px",
-                textAlign: "center",
-              }}
-            />
-            <div style={{ display: "flex", gap: 10 }}>
-              {[20, 50, 100].map((bb) => (
-                <button
-                  key={bb}
-                  type="button"
-                  onClick={() => {
-                    sound.chipClink();
-                    setBuyAmount(String(room.minBet * bb));
-                  }}
-                  style={{
-                    flex: 1,
-                    fontFamily: "var(--font-display)",
-                    fontSize: 11,
-                    padding: "9px 0",
-                    border: "1px solid #35205c",
-                    background: "transparent",
-                    color: "#9fd8c0",
-                    cursor: "pointer",
-                  }}
-                >
-                  {bb} BB
-                </button>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 10 }}>
+          </div>
+          <input
+            value={buyAmount}
+            onChange={(e) => setBuyAmount(e.target.value.replace(/[^0-9]/g, ""))}
+            style={{
+              fontFamily: "var(--font-body)",
+              fontSize: 30,
+              background: "#06040d",
+              border: "2px solid #35205c",
+              color: "#ff8a1f",
+              padding: "8px 12px",
+              textAlign: "center",
+            }}
+          />
+          <div style={{ display: "flex", gap: 10 }}>
+            {[20, 50, 100].map((bb) => (
               <button
+                key={bb}
                 type="button"
                 onClick={() => {
-                  setBuyOpen(false);
-                  sound.click();
+                  sound.chipClink();
+                  setBuyAmount(String(room.minBet * bb));
                 }}
                 style={{
                   flex: 1,
                   fontFamily: "var(--font-display)",
-                  fontSize: 12,
+                  fontSize: 14,
                   padding: "11px 0",
                   border: "1px solid #35205c",
                   background: "transparent",
-                  color: "#8878b8",
+                  color: "#9fd8c0",
                   cursor: "pointer",
                 }}
               >
-                CANCEL
+                {bb} BB
               </button>
-              <button
-                type="button"
-                onClick={buyIn}
-                disabled={busy}
-                style={{
-                  flex: 1,
-                  fontFamily: "var(--font-display)",
-                  fontSize: 12,
-                  letterSpacing: 1,
-                  padding: "11px 0",
-                  border: "2px solid #5fe08a",
-                  background: "#0b2a33",
-                  color: "#5fe08a",
-                  cursor: busy ? "wait" : "pointer",
-                  opacity: busy ? 0.6 : 1,
-                }}
-              >
-                {busy ? "…" : "SIT DOWN"}
-              </button>
-            </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => {
+                setBuyOpen(false);
+                sound.click();
+              }}
+              style={{
+                flex: 1,
+                fontFamily: "var(--font-display)",
+                fontSize: 16,
+                padding: "12px 0",
+                border: "1px solid #35205c",
+                background: "transparent",
+                color: "#8878b8",
+                cursor: "pointer",
+              }}
+            >
+              CANCEL
+            </button>
+            <button
+              type="button"
+              onClick={buyIn}
+              disabled={busy}
+              style={{
+                flex: 1,
+                fontFamily: "var(--font-display)",
+                fontSize: 16,
+                letterSpacing: 1,
+                padding: "12px 0",
+                border: "2px solid #5fe08a",
+                background: "#0b2a33",
+                color: "#5fe08a",
+                cursor: busy ? "wait" : "pointer",
+                opacity: busy ? 0.6 : 1,
+              }}
+            >
+              {busy ? "…" : "SIT DOWN"}
+            </button>
           </div>
         </div>
-      )}
+      </NeonDialog>
     </div>
   );
 }

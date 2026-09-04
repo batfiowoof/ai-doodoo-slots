@@ -7,6 +7,7 @@ import HistoryTable from "@/components/HistoryTable";
 import { NavButton, NavLink } from "@/components/NavButton";
 import PlayingCard from "@/components/PlayingCard";
 import { Avatar } from "@/components/Avatar";
+import NeonDialog from "@/components/NeonDialog";
 import { sound } from "@/lib/sound";
 import {
   useActiveHand,
@@ -761,77 +762,18 @@ export default function BlackjackTable() {
         </div>
       )}
 
-      {panel && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            zIndex: 12,
-            background: "rgba(6,4,13,.86)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 32,
-          }}
-        >
-          <div
-            style={{
-              width: 900,
-              maxWidth: "100%",
-              maxHeight: "84vh",
-              overflow: "auto",
-              background: "#0f0720",
-              border: "2px solid #22e8ff",
-              boxShadow: "0 0 60px rgba(34,232,255,.35)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "14px 18px",
-                borderBottom: "2px solid #241640",
-                background: "#150a2a",
-                position: "sticky",
-                top: 0,
-              }}
-            >
-              <span
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontSize: 16,
-                  letterSpacing: 3,
-                  color: "#ff2d95",
-                  textShadow: "0 0 12px rgba(255,45,149,.8)",
-                }}
-              >
-                {panel === "history" ? "BET HISTORY" : "HOW IT WORKS"}
-              </span>
-              <button
-                type="button"
-                onClick={() => { sound.click(); setPanel(null); }}
-                style={{
-                  border: "1px solid #35205c",
-                  background: "transparent",
-                  color: "#8878b8",
-                  fontFamily: "var(--font-display)",
-                  fontSize: 11,
-                  letterSpacing: 2,
-                  padding: "8px 12px",
-                  cursor: "pointer",
-                }}
-              >
-                CLOSE ✕
-              </button>
-            </div>
-            <div style={{ padding: 18 }} key={panel}>
-              {panel === "history" && <HistoryTable />}
-              {panel === "info" && <HowItWorks />}
-            </div>
-          </div>
+      <NeonDialog
+        open={panel !== null}
+        onClose={() => setPanel(null)}
+        title={panel === "history" ? "BET HISTORY" : "HOW IT WORKS"}
+        accent="#ff2d95"
+        width={1040}
+      >
+        <div style={{ padding: 18 }} key={panel}>
+          {panel === "history" && <HistoryTable />}
+          {panel === "info" && <HowItWorks />}
         </div>
-      )}
+      </NeonDialog>
     </div>
   );
 }

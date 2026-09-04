@@ -8,6 +8,7 @@ import { NavButton, NavLink } from "@/components/NavButton";
 import Paytable from "@/components/Paytable";
 import VerifyClient from "@/components/VerifyClient";
 import { Avatar } from "@/components/Avatar";
+import NeonDialog from "@/components/NeonDialog";
 import { sound } from "@/lib/sound";
 import { useBets, useFairCurrent, useGames, useSession } from "@/lib/api";
 import type { GameInfo } from "@/lib/types";
@@ -47,14 +48,6 @@ export default function MachineScreen({ gameId }: { gameId: string }) {
     onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.code === "Escape") setPanel(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const openPanel = (p: Panel) => {
@@ -258,88 +251,20 @@ export default function MachineScreen({ gameId }: { gameId: string }) {
       )}
 
       {/* Overlay panels */}
-      {panel && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            zIndex: 12,
-            background: "rgba(6,4,13,.86)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 32,
-          }}
-        >
-          <div
-            style={{
-              width: 900,
-              maxWidth: "100%",
-              maxHeight: "84vh",
-              overflow: "auto",
-              background: "#0f0720",
-              border: "2px solid #22e8ff",
-              boxShadow: "0 0 60px rgba(34,232,255,.35)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "14px 18px",
-                borderBottom: "2px solid #241640",
-                background: "#150a2a",
-                position: "sticky",
-                top: 0,
-              }}
-            >
-              <span
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontSize: 16,
-                  letterSpacing: 3,
-                  color: "#ff2d95",
-                  textShadow: "0 0 12px rgba(255,45,149,.8)",
-                }}
-              >
-                {PANEL_TITLES[panel]}
-              </span>
-              <button
-                type="button"
-                onClick={() => openPanel(null)}
-                style={{
-                  border: "1px solid #35205c",
-                  background: "transparent",
-                  color: "#8878b8",
-                  fontFamily: "var(--font-display)",
-                  fontSize: 11,
-                  letterSpacing: 2,
-                  padding: "8px 12px",
-                  cursor: "pointer",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "#ff2d95";
-                  e.currentTarget.style.color = "#ff2d95";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "#35205c";
-                  e.currentTarget.style.color = "#8878b8";
-                }}
-              >
-                CLOSE ✕
-              </button>
-            </div>
-
-            <div style={{ padding: 18 }} key={panel}>
-              {panel === "paytable" && <Paytable gameId={gameId} />}
-              {panel === "history" && <HistoryTable />}
-              {panel === "info" && info && <HowItWorks game={info} />}
-              {panel === "verify" && <VerifyClient />}
-            </div>
-          </div>
+      <NeonDialog
+        open={panel !== null}
+        onClose={() => setPanel(null)}
+        title={panel ? PANEL_TITLES[panel] : ""}
+        accent="#ff2d95"
+        width={1040}
+      >
+        <div style={{ padding: 18 }} key={panel}>
+          {panel === "paytable" && <Paytable gameId={gameId} />}
+          {panel === "history" && <HistoryTable />}
+          {panel === "info" && info && <HowItWorks game={info} />}
+          {panel === "verify" && <VerifyClient />}
         </div>
-      )}
+      </NeonDialog>
     </div>
   );
 }
@@ -394,7 +319,7 @@ function HowItWorks({ game }: { game: GameInfo }) {
               style={{
                 width: 220,
                 fontFamily: "var(--font-display)",
-                fontSize: 11,
+                fontSize: 14,
                 letterSpacing: 2,
                 color: "#8878b8",
               }}
