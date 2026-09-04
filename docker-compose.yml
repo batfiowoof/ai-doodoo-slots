@@ -82,7 +82,11 @@ services:
     command: ["gameserver"]
 
   web:
-    build: ./apps/web
+    build:
+      context: ./apps/web
+      args:
+        # Inlined into the client bundle at build time (see web Dockerfile).
+        NEXT_PUBLIC_WS_URL: ws://localhost:8082/api/v1/ws
     environment:
       # Same-origin BFF inside the compose network.
       API_URL: http://api:8080

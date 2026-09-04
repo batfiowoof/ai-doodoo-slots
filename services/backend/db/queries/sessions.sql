@@ -19,7 +19,10 @@ WHERE s.token_hash = $1
 -- lifetime measured from session creation.
 UPDATE sessions
 SET last_seen_at = $2,
-    expires_at = LEAST($2 + interval '30 days', created_at + interval '90 days')
+    -- $2 must be cast explicitly: pgx sends it untyped, and Postgres then
+    -- resolves `$2 + interval` as interval, making LEAST(interval, timestamptz)
+    -- a type error (SQLSTATE 42804).
+    expires_at = LEAST($2::timestamptz + interval '30 days', created_at + interval '90 days')
 WHERE id = $1;
 
 -- name: RevokeSessionByTokenHash :exec

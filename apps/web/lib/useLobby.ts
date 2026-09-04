@@ -48,7 +48,7 @@ export function useLobby(enabled = true) {
     const wsURL =
       process.env.NEXT_PUBLIC_WS_URL ??
       (location.port === "3000"
-        ? "ws://localhost:8080/api/v1/ws"
+        ? "ws://localhost:8082/api/v1/ws"
         : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/v1/ws`);
 
     let closed = false;

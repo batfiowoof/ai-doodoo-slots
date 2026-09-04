@@ -38,7 +38,7 @@ interface RoomSnapshot {
 const wsUrl = () =>
   process.env.NEXT_PUBLIC_WS_URL ??
   (typeof location !== "undefined" && location.port === "3000"
-    ? "ws://localhost:8080/api/v1/ws"
+    ? "ws://localhost:8082/api/v1/ws"
     : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/v1/ws`);
 
 const BET_STEPS = [5, 10, 25, 50, 100];

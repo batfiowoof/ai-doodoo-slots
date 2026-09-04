@@ -85,7 +85,7 @@ interface RoomInfo {
 const wsUrl = () =>
   process.env.NEXT_PUBLIC_WS_URL ??
   (typeof location !== "undefined" && location.port === "3000"
-    ? "ws://localhost:8080/api/v1/ws"
+    ? "ws://localhost:8082/api/v1/ws"
     : `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/v1/ws`);
 
 const PHASE_LABELS: Record<string, string> = {

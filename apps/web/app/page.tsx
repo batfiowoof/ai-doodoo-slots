@@ -198,10 +198,14 @@ export default function GameMenu() {
               </button>
             )}
             {session.data?.user.isGuest && (
-              <NavLink href="/auth/login?next=/">LOGIN</NavLink>
+              <NavLink href="/auth/login?next=/" hard>
+                LOGIN
+              </NavLink>
             )}
             {session.data && !session.data.user.isGuest && (
-              <NavLink href="/auth/logout">LOGOUT</NavLink>
+              <NavLink href="/auth/logout" hard>
+                LOGOUT
+              </NavLink>
             )}
             <NavLink href="/verify">VERIFY</NavLink>
             {session.data && (session.data.user.role === "admin" || session.data.user.role === "moderator") && (

@@ -81,16 +81,27 @@ export function NavButton({
   );
 }
 
-/** Same chrome as NavButton, but navigates. */
+/** Same chrome as NavButton, but navigates. `hard` renders a plain anchor:
+ * auth routes answer with a cross-origin redirect (Keycloak), which Next's
+ * client-side fetch cannot follow (CORS), so they must be full navigations. */
 export function NavLink({
   href,
   variant = "default",
   children,
+  hard = false,
 }: {
   href: string;
   variant?: Variant;
   children: ReactNode;
+  hard?: boolean;
 }) {
+  if (hard) {
+    return (
+      <a href={href} style={styleFor(variant, false)} {...hoverProps(variant)}>
+        {children}
+      </a>
+    );
+  }
   return (
     <Link href={href} style={styleFor(variant, false)} {...hoverProps(variant)}>
       {children}
