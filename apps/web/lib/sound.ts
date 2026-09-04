@@ -263,6 +263,121 @@ class SoundManager {
     );
     this.tone(65, 1.2, { type: "sawtooth", gain: 0.07, delay: 0.4, slideTo: 130 });
   }
+
+  // ----- crash-room space sounds -----
+
+  private engine: {
+    src: AudioBufferSourceNode;
+    f: BiquadFilterNode;
+    osc: OscillatorNode;
+    og: GainNode;
+    g: GainNode;
+  } | null = null;
+
+  /** Ignition: sub rumble, a rising saw, and a wide noise swell. */
+  launch(): void {
+    this.tone(38, 1.7, { type: "sine", gain: 0.14, slideTo: 90 });
+    this.tone(70, 1.4, { type: "sawtooth", gain: 0.07, slideTo: 240 });
+    this.hit(1.3, { gain: 0.16, freq: 320, q: 0.6, type: "lowpass" });
+    this.hit(0.25, { gain: 0.1, freq: 2600 });
+  }
+
+  /** Looping engine bed under the flight; pitch rides the multiplier. */
+  engineStart(): void {
+    const ctx = this.ensure();
+    if (!ctx || !this.master || this.engine) return;
+    if (!this.noiseBuf) {
+      const len = Math.floor(ctx.sampleRate * 1.2);
+      this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = this.noiseBuf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    src.loop = true;
+    const f = ctx.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.value = 500;
+    f.Q.value = 0.8;
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    g.gain.setTargetAtTime(0.075, ctx.currentTime, 0.15);
+    const osc = ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.value = 66;
+    const og = ctx.createGain();
+    og.gain.value = 0.022;
+    src.connect(f);
+    f.connect(g);
+    g.connect(this.master);
+    osc.connect(og);
+    og.connect(this.master);
+    src.start();
+    osc.start();
+    this.engine = { src, f, osc, og, g };
+  }
+
+  /** Track the multiplier: filter opens and the growl rises. */
+  enginePitch(m: number): void {
+    if (!this.engine || !this.ctx) return;
+    const l = Math.log(Math.max(1, m));
+    const t = this.ctx.currentTime;
+    this.engine.f.frequency.setTargetAtTime(500 + l * 520, t, 0.2);
+    this.engine.osc.frequency.setTargetAtTime(66 + l * 46, t, 0.2);
+    this.engine.g.gain.setTargetAtTime(0.07 + Math.min(0.05, l * 0.014), t, 0.3);
+  }
+
+  engineStop(): void {
+    if (!this.engine || !this.ctx) return;
+    const { src, osc, g, og } = this.engine;
+    this.engine = null;
+    const t = this.ctx.currentTime;
+    g.gain.setTargetAtTime(0, t, 0.08);
+    og.gain.setTargetAtTime(0, t, 0.08);
+    src.stop(t + 0.4);
+    osc.stop(t + 0.4);
+  }
+
+  /** Catastrophic disassembly: boom, crackle, and a falling saw. */
+  explosion(): void {
+    this.hit(0.55, { gain: 0.34, freq: 130, q: 0.5, type: "lowpass" });
+    this.hit(0.3, { gain: 0.2, freq: 1100, q: 0.8, delay: 0.05 });
+    this.tone(200, 0.9, { type: "sawtooth", gain: 0.12, slideTo: 28 });
+    this.tone(48, 1.1, { type: "sine", gain: 0.16, slideTo: 26 });
+    for (let i = 0; i < 5; i++) {
+      this.hit(0.09, {
+        gain: 0.1 - i * 0.015,
+        freq: 900 + Math.random() * 900,
+        delay: 0.15 + i * 0.11,
+      });
+    }
+  }
+
+  /** Player eject: bright two-note confirm, distinct from the bell. */
+  cashout(): void {
+    this.tone(880, 0.09, { gain: 0.06 });
+    this.tone(1318, 0.2, { gain: 0.06, delay: 0.09 });
+    this.tone(1760, 0.16, { type: "triangle", gain: 0.03, delay: 0.09 });
+  }
+
+  /** T-minus blip; the final second jumps an octave. */
+  countdownBeep(final = false): void {
+    this.tone(final ? 1320 : 880, 0.07, { gain: 0.07 });
+  }
+
+  /** Milestone zap, pitched up by tier. */
+  milestone(m: number): void {
+    const f = m >= 25 ? 2093 : m >= 10 ? 1568 : m >= 5 ? 1175 : 880;
+    this.tone(f, 0.1, { type: "square", gain: 0.05 });
+    this.tone(f * 1.5, 0.16, { type: "square", gain: 0.045, delay: 0.08 });
+    this.hit(0.08, { gain: 0.06, freq: 5200, delay: 0.02 });
+  }
+
+  /** Throttle stage bump: short filtered whoosh. */
+  boost(): void {
+    this.tone(320, 0.26, { type: "triangle", gain: 0.05, slideTo: 1500 });
+    this.hit(0.22, { gain: 0.09, freq: 1400, q: 1.2 });
+  }
 }
 
 // Module singleton.

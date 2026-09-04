@@ -335,6 +335,12 @@ export default function GameMenu() {
 function CrashCabinet({ room }: { room: LobbyRoomInfo }) {
   const live = room.state === "running";
   const open = room.state === "betting_open";
+  const m = room.multiplier ?? 1;
+  const glow = live
+    ? tierGlow(m)
+    : open
+      ? "rgba(95,224,138,.35)"
+      : "rgba(157,77,255,.15)";
   return (
     <Link
       href={`/rooms/${room.slug}`}
@@ -346,10 +352,10 @@ function CrashCabinet({ room }: { room: LobbyRoomInfo }) {
         width: 376,
         boxSizing: "border-box",
         flex: "0 0 376px",
-        padding: 20,
+        padding: 16,
         background: "linear-gradient(#0d0619,#170c2b)",
-        border: `2px solid ${live ? "#22e8ff" : "#35205c"}`,
-        boxShadow: live ? "0 0 34px rgba(34,232,255,.3)" : "0 0 24px rgba(157,77,255,.15)",
+        border: `2px solid ${live ? "#22e8ff" : open ? "#5fe08a" : "#35205c"}`,
+        boxShadow: `0 0 30px ${glow}`,
         cursor: "pointer",
       }}
     >
@@ -368,34 +374,113 @@ function CrashCabinet({ room }: { room: LobbyRoomInfo }) {
           {room.playerCount} IN
         </span>
       </div>
-      <div style={{ marginTop: 6, fontFamily: "var(--font-body)", fontSize: 17, color: "#8878b8" }}>
+
+      {/* viewfinder: mini starfield + ship */}
+      <div
+        style={{
+          marginTop: 10,
+          position: "relative",
+          height: 108,
+          background: "#06040d",
+          boxShadow: "inset 0 0 0 1px #241640",
+          overflow: "hidden",
+          backgroundImage: [
+            "radial-gradient(1px 1px at 12% 28%, rgba(236,230,255,.9), transparent)",
+            "radial-gradient(1px 1px at 34% 68%, rgba(34,232,255,.8), transparent)",
+            "radial-gradient(2px 2px at 58% 22%, rgba(236,230,255,.75), transparent)",
+            "radial-gradient(1px 1px at 72% 58%, rgba(255,177,92,.8), transparent)",
+            "radial-gradient(1px 1px at 88% 34%, rgba(236,230,255,.85), transparent)",
+            "radial-gradient(2px 2px at 46% 84%, rgba(255,45,149,.5), transparent)",
+            "radial-gradient(1px 1px at 24% 88%, rgba(236,230,255,.6), transparent)",
+          ].join(","),
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            right: 18,
+            top: 14,
+            width: 54,
+            height: 27,
+            background: "radial-gradient(circle at 50% 50%, rgba(157,77,255,.5), rgba(157,77,255,0) 70%)",
+            borderRadius: "50%",
+          }}
+        />
+        <img
+          src={`/sprites/space/${live ? "flight-tilt" : "flight-1"}.png`}
+          alt=""
+          className="pixelated"
+          style={{
+            position: "absolute",
+            left: live ? 42 : 34,
+            bottom: 16,
+            height: live ? 74 : 52,
+            animation: live ? "shipBob 1.1s ease-in-out infinite alternate" : undefined,
+            filter: live
+              ? `drop-shadow(0 0 10px ${tierGlow(m)})`
+              : "drop-shadow(0 0 6px rgba(255,138,31,.45))",
+          }}
+        />
+        {live && (
+          <span
+            style={{
+              position: "absolute",
+              left: 14,
+              top: 10,
+              fontFamily: "var(--font-display)",
+              fontSize: 24,
+              color: "#fff",
+              textShadow: `0 0 8px ${tierGlow(m)}, 0 0 26px ${tierGlow(m)}`,
+            }}
+          >
+            {m.toFixed(2)}×
+          </span>
+        )}
+        {open && (
+          <span
+            style={{
+              position: "absolute",
+              left: 14,
+              top: 10,
+              fontFamily: "var(--font-display)",
+              fontSize: 13,
+              letterSpacing: 3,
+              color: "#5fe08a",
+              animation: "hintBlink 1.4s step-end infinite",
+            }}
+          >
+            ▲ BOARDING NOW
+          </span>
+        )}
+      </div>
+
+      <div style={{ marginTop: 8, fontFamily: "var(--font-body)", fontSize: 17, color: "#8878b8" }}>
         BETS {room.minBet}–{room.maxBet.toLocaleString()} · {room.state?.toUpperCase() ?? "…"}
-        {live && room.multiplier ? ` · ${room.multiplier.toFixed(2)}×` : ""}
       </div>
       <div
         style={{
-          marginTop: 12,
-          padding: 10,
+          marginTop: 8,
+          padding: "6px 8px",
           background: "#06040d",
           boxShadow: "inset 0 0 0 1px #241640",
           display: "flex",
           gap: 6,
           justifyContent: "center",
-          minHeight: 30,
+          minHeight: 28,
         }}
       >
-        {(room.recentCrashes ?? []).slice(0, 6).map((m, i) => (
+        {(room.recentCrashes ?? []).slice(0, 6).map((mv, i) => (
           <span
             key={i}
             style={{
               fontFamily: "var(--font-body)",
               fontSize: 15,
               padding: "0 6px",
-              border: `1px solid ${m >= 2 ? "#5fe08a" : m >= 1.3 ? "#6b5f9e" : "#8c3b2e"}`,
-              color: m >= 2 ? "#5fe08a" : m >= 1.3 ? "#8878b8" : "#f2643d",
+              border: `1px solid ${mv >= 2 ? "#5fe08a" : mv >= 1.3 ? "#6b5f9e" : "#8c3b2e"}`,
+              color: mv >= 2 ? "#5fe08a" : mv >= 1.3 ? "#8878b8" : "#f2643d",
             }}
           >
-            {m.toFixed(2)}×
+            {mv.toFixed(2)}×
           </span>
         ))}
         {(room.recentCrashes ?? []).length === 0 && (
@@ -406,6 +491,11 @@ function CrashCabinet({ room }: { room: LobbyRoomInfo }) {
       </div>
     </Link>
   );
+}
+
+// Glow colour tiers shared with the crash room's readouts.
+function tierGlow(m: number): string {
+  return m >= 25 ? "#f2643d" : m >= 10 ? "#ff2d95" : m >= 5 ? "#ffb15c" : m >= 2 ? "#5fe08a" : "#22e8ff";
 }
 
 interface LobbyRoomInfo {
