@@ -19,6 +19,7 @@ import (
 	"github.com/ai-doodoo-slots/services/backend/internal/game"
 	"github.com/ai-doodoo-slots/services/backend/internal/game/crash"
 	"github.com/ai-doodoo-slots/services/backend/internal/game/poker"
+	"github.com/ai-doodoo-slots/services/backend/internal/game/roulette"
 	"github.com/ai-doodoo-slots/services/backend/internal/httpapi"
 	"github.com/ai-doodoo-slots/services/backend/internal/round"
 	"github.com/ai-doodoo-slots/services/backend/internal/store"
@@ -37,7 +38,30 @@ func envOr(key, fallback string) string {
 // roundRegistry maps game IDs to shared-round engines. Adding a game:
 // implement game.RoundGame, register here, seed a room.
 var roundRegistry = map[string]game.RoundGame{
-	crash.GameID: crash.New(),
+	crash.GameID:    crash.New(),
+	roulette.GameID: roulette.New(),
+}
+
+// roundConfig builds each game's runner config: the shared round
+// scaffolding plus the game-specific curve, running length, settle strategy
+// and history projection.
+func roundConfig(g game.RoundGame) round.Config {
+	cfg := round.Config{Tick: 100 * time.Millisecond}
+	switch g.ID() {
+	case crash.GameID:
+		cfg.BettingOpen, cfg.Locked, cfg.Settled = 7*time.Second, 1*time.Second, 4*time.Second
+		cfg.MaxRunning = 90 * time.Second
+		cfg.Curve = crash.MultiplierAt
+		cfg.RunningFor = crash.RunningFor
+	case roulette.GameID:
+		cfg.BettingOpen, cfg.Locked, cfg.Settled = roulette.BettingWindow, roulette.LockedWindow, roulette.SettledWindow
+		cfg.MaxRunning = roulette.SpinDuration + time.Second
+		cfg.Curve = roulette.Curve
+		cfg.RunningFor = roulette.RunningFor
+		cfg.SpotSettle = true
+		cfg.HistoryValue = roulette.HistoryValue
+	}
+	return cfg
 }
 
 func main() {
@@ -86,15 +110,7 @@ func main() {
 	for _, room := range rooms {
 		if g, ok := roundRegistry[room.GameID]; ok {
 			runner := round.NewRunner(room.Slug, room.ID, g, crashChain, persist,
-				api.Bus(), clock.Real{}, round.Config{
-					BettingOpen: 7 * time.Second,
-					Locked:      1 * time.Second,
-					Settled:     4 * time.Second,
-					Tick:        100 * time.Millisecond,
-					MaxRunning:  90 * time.Second,
-					Curve:       crash.MultiplierAt,
-					RunningFor:  crash.RunningFor,
-				}, pool, logger)
+				api.Bus(), clock.Real{}, roundConfig(g), pool, logger)
 			go runner.Run(ctx)
 			runners[room.Slug] = runner
 			runner.SetLimits(room.MinBet, room.MaxBet)

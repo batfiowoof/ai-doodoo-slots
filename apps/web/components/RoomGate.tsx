@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import CrashRoom from "@/components/CrashRoom";
 import PokerRoom from "@/components/PokerRoom";
+import RouletteRoom from "@/components/RouletteRoom";
 
 interface RoomDetail {
   room: {
@@ -17,7 +18,7 @@ interface RoomDetail {
   round: unknown;
 }
 
-/** Picks the room renderer by game: holdem tables vs crash rooms. */
+/** Picks the room renderer by game: holdem tables, roulette wheels, crash rooms. */
 export default function RoomGate({ slug }: { slug: string }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["room", slug],
@@ -50,6 +51,9 @@ export default function RoomGate({ slug }: { slug: string }) {
   }
   if (data.room.gameId === "holdem") {
     return <PokerRoom slug={slug} room={data.room} />;
+  }
+  if (data.room.gameId === "roulette") {
+    return <RouletteRoom slug={slug} />;
   }
   return <CrashRoom slug={slug} />;
 }

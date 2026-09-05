@@ -4,17 +4,21 @@ import { useCallback, useEffect, useState } from "react";
 import Backdrop from "@/components/Backdrop";
 import PixelSymbol from "@/components/PixelSymbol";
 import PixelCard from "@/components/PixelCard";
+import { NavLink } from "@/components/NavButton";
 import { sound } from "@/lib/sound";
 import { useDeposit, useGames, useSession } from "@/lib/api";
 import { useLobby, type LobbyRoom } from "@/lib/useLobby";
+import { EUROPEAN_ORDER, POCKET_COLORS, pocketColor } from "@/lib/roulette";
 import { Avatar } from "@/components/Avatar";
 import { AccountModal } from "@/components/AccountModal";
 import RadialMenu, { type RadialNode } from "@/components/RadialMenu";
 import type { GameInfo } from "@/lib/types";
+import { greetingPool, pickGreeting } from "@/lib/greeting";
 
-// Design-size wheel stage, scaled to fit the viewport.
-const STAGE_W = 1240;
-const STAGE_H = 880;
+// Design-size wheel stage, scaled to fit the viewport. Wide and short on
+// purpose: the ring is an ellipse, so widescreen viewports scale it large.
+const STAGE_W = 1480;
+const STAGE_H = 640;
 
 /** The casino floor: every game and live table on one big radial wheel. */
 export default function GameMenu() {
@@ -26,6 +30,11 @@ export default function GameMenu() {
   const [stageScale, setStageScale] = useState(1);
   const [muted, setMuted] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  // The wheel is a tree: the root ring holds one node per game type; picking
+  // a type drills into its sub-ring of games/rooms, with a BACK chip to climb.
+  const [drilled, setDrilled] = useState<string | null>(null);
+  // Rotating situational greeting (time of day, balance, live tables).
+  const [greeting, setGreeting] = useState<string | null>(null);
 
   useEffect(() => {
     const onResize = () => {
@@ -39,6 +48,29 @@ export default function GameMenu() {
   }, []);
 
   const balance = session.data?.balanceCredits;
+  const liveTables = lobby.rooms.filter(
+    (r) => r.state !== undefined && r.state !== "waiting" && r.state !== "",
+  ).length;
+
+  // Pick a fresh greeting from the situational pool every few seconds.
+  useEffect(() => {
+    const now = new Date();
+    const pool = greetingPool({
+      hour: now.getHours(),
+      displayName: session.data?.user.displayName,
+      balance,
+      liveTables,
+      weekend: now.getDay() === 0 || now.getDay() === 6,
+    });
+    if (pool.length === 0) return;
+    let current = pickGreeting(pool);
+    setGreeting(current);
+    const id = window.setInterval(() => {
+      current = pickGreeting(pool, current);
+      setGreeting(current);
+    }, 7000);
+    return () => window.clearInterval(id);
+  }, [session.data?.user.displayName, balance, liveTables]);
 
   const doDeposit = useCallback(() => {
     sound.unlock();
@@ -71,89 +103,131 @@ export default function GameMenu() {
     }
   };
 
-  // Outer ring: machines and tables first, then the live rooms.
-  const nodes: RadialNode[] = [
-    ...(games.data ?? []).map((g) => gameNode(g)),
-    ...lobby.rooms.map((r) => roomNode(r)),
-  ];
+  // ── the game tree ──────────────────────────────────────────────────────
+  const slotsGames = (games.data ?? []).filter((g) => g.paytable);
+  const tableGames = (games.data ?? []).filter((g) => !g.paytable);
+  const crashRooms = lobby.rooms.filter((r) => r.gameId === "crash");
+  const rouletteRooms = lobby.rooms.filter((r) => r.gameId === "roulette");
+  const holdemRooms = lobby.rooms.filter((r) => r.gameId === "holdem");
 
-  // Inner orbit: account + kiosk actions.
-  const satellites: RadialNode[] = [];
-  if (session.data) {
-    satellites.push({
-      key: "account",
-      label: "ACCOUNT",
+  const liveCount = (rooms: LobbyRoom[]) =>
+    rooms.filter((r) => r.state !== undefined && r.state !== "waiting" && r.state !== "").length;
+
+  interface Group {
+    key: string;
+    label: string;
+    accent: string;
+    badge: string;
+    art: React.ReactNode;
+    children: RadialNode[];
+  }
+
+  const groups: Group[] = [];
+  if (crashRooms.length > 0) {
+    groups.push({
+      key: "crash",
+      label: "CRASH",
       accent: "#22e8ff",
+      badge: `${liveCount(crashRooms)}/${crashRooms.length} LIVE`,
       art: (
-        <Avatar
-          userId={session.data.user.id}
-          displayName={session.data.user.displayName}
-          avatarPreset={session.data.user.avatarPreset}
-          avatarVersion={session.data.user.avatarVersion}
-          size={46}
-          ring="#22e8ff"
+        <img
+          src="/sprites/space/flight-1.png"
+          alt=""
+          className="pixelated"
+          style={{ height: 52, filter: "drop-shadow(0 0 8px rgba(34,232,255,.5))" }}
         />
       ),
-      status: session.data.user.displayName.toUpperCase(),
-      onActivate: () => setAccountOpen(true),
-    });
-    satellites.push({
-      key: "deposit",
-      label: "DEPOSIT",
-      status: "+1000",
-      accent: "#ff8a1f",
-      art: <img src="/sprites/money-bag.png" width={38} height={38} className="pixelated" alt="" />,
-      onActivate: doDeposit,
-      disabled: deposit.isPending || !session.isSuccess,
-      onLaunchSound: () => {}, // the kiosk call plays its own cues
-    });
-    if (!session.data.user.isGuest) {
-      satellites.push({
-        key: "logout",
-        label: "LOGOUT",
-        accent: "#8878b8",
-        href: "/auth/logout",
-        hard: true,
-        art: <img src="/sprites/horseshoe.png" width={38} height={38} className="pixelated" alt="" />,
-      });
-    }
-  } else {
-    satellites.push({
-      key: "login",
-      label: "LOGIN",
-      accent: "#22e8ff",
-      href: "/auth/login?next=/",
-      hard: true,
-      art: <img src="/sprites/star.png" width={38} height={38} className="pixelated" alt="" />,
+      children: crashRooms.map((r) => roomNode(r)),
     });
   }
-  satellites.push({
-    key: "verify",
-    label: "VERIFY",
-    accent: "#5fe08a",
-    href: "/verify",
-    art: <img src="/sprites/key.png" width={38} height={38} className="pixelated" alt="" />,
-  });
-  if (
-    session.data &&
-    (session.data.user.role === "admin" || session.data.user.role === "moderator")
-  ) {
-    satellites.push({
-      key: "staff",
-      label: "STAFF",
+  if (rouletteRooms.length > 0) {
+    groups.push({
+      key: "roulette",
+      label: "ROULETTE",
+      accent: "#5fe08a",
+      badge: `${liveCount(rouletteRooms)}/${rouletteRooms.length} LIVE`,
+      art: <MiniWheel last={rouletteRooms[0] ? (rouletteRooms[0].recentCrashes ?? [])[0] : undefined} />,
+      children: rouletteRooms.map((r) => roomNode(r)),
+    });
+  }
+  if (holdemRooms.length > 0) {
+    groups.push({
+      key: "poker",
+      label: "POKER",
+      accent: "#5fe08a",
+      badge: `${liveCount(holdemRooms)}/${holdemRooms.length} LIVE`,
+      art: <MiniFelt seated={0} capacity={6} />,
+      children: holdemRooms.map((r) => roomNode(r)),
+    });
+  }
+  if (slotsGames.length > 0) {
+    const icons = slotsGames[0].paytable?.icons.slice(0, 4) ?? [];
+    groups.push({
+      key: "slots",
+      label: "SLOTS",
       accent: "#ff2d95",
-      href: "/admin",
-      art: <img src="/sprites/crown.png" width={38} height={38} className="pixelated" alt="" />,
+      badge: `${slotsGames.length} MACHINES`,
+      art: (
+        <span style={{ display: "flex", gap: 5 }}>
+          {icons.map((icon, i) => (
+            <PixelSymbol key={i} index={i} icon={icon} scale={1} />
+          ))}
+        </span>
+      ),
+      children: slotsGames.map((g) => gameNode(g)),
     });
   }
+
+  // Root ring: one node per type, single-player tables as direct leaves.
+  const groupNode = (g: Group): RadialNode => ({
+    key: `group:${g.key}`,
+    label: g.label,
+    accent: g.accent,
+    badge: g.badge,
+    art: g.art,
+    status: "PICK ▸",
+    onActivate: () => {
+      sound.click();
+      setDrilled(g.key);
+    },
+  });
+  const activeGroup = groups.find((g) => g.key === drilled);
+  const nodes: RadialNode[] = activeGroup
+    ? activeGroup.children
+    : [...groups.map(groupNode), ...tableGames.map((g) => gameNode(g))];
+
+  // Climb back out if the drilled group emptied out.
+  useEffect(() => {
+    if (drilled && !activeGroup) setDrilled(null);
+  }, [drilled, activeGroup]);
+
+  // Account actions live in the header now — the wheel is games only.
 
   const hub = (
     <>
+      {greeting && (
+        <span
+          key={greeting}
+          style={{
+            fontFamily: "var(--font-body)",
+            fontSize: 15,
+            color: "#22e8ff",
+            textShadow: "0 0 8px rgba(34,232,255,.6)",
+            whiteSpace: "nowrap",
+            maxWidth: 252,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            animation: "logPop .45s ease-out both",
+          }}
+        >
+          {greeting}
+        </span>
+      )}
       <span style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
         <span
           style={{
             fontFamily: "var(--font-display)",
-            fontSize: 30,
+            fontSize: 34,
             letterSpacing: 4,
             color: "#ff2d95",
             textShadow: "0 0 14px rgba(255,45,149,.9)",
@@ -164,7 +238,7 @@ export default function GameMenu() {
         <span
           style={{
             fontFamily: "var(--font-display)",
-            fontSize: 30,
+            fontSize: 34,
             letterSpacing: 4,
             color: "#22e8ff",
             textShadow: "0 0 14px rgba(34,232,255,.9)",
@@ -187,7 +261,7 @@ export default function GameMenu() {
         data-testid="credits"
         style={{
           fontFamily: "var(--font-body)",
-          fontSize: 54,
+          fontSize: 60,
           lineHeight: 1,
           color: "#ff8a1f",
           textShadow: "0 0 16px rgba(255,138,31,.7)",
@@ -204,7 +278,13 @@ export default function GameMenu() {
           animation: games.isError ? undefined : "hintBlink 1.6s steps(1) infinite",
         }}
       >
-        {games.isLoading ? "OPENING THE FLOOR…" : games.isError ? "CASINO UNREACHABLE" : "◆ PICK YOUR GAME ◆"}
+        {games.isLoading
+          ? "OPENING THE FLOOR…"
+          : games.isError
+            ? "CASINO UNREACHABLE"
+            : activeGroup
+              ? "◀ CLICK HUB TO GO BACK"
+              : "◆ PICK YOUR GAME ◆"}
       </span>
     </>
   );
@@ -256,31 +336,127 @@ export default function GameMenu() {
               CASINO
             </span>
           </div>
-          <button
-            type="button"
-            onClick={toggleMute}
-            style={{
-              border: "1px solid #6b4a1c",
-              background: "#2a1406",
-              color: "#ffb15c",
-              fontFamily: "var(--font-display)",
-              fontSize: 12,
-              letterSpacing: "1px",
-              padding: "10px 14px",
-              whiteSpace: "nowrap",
-              cursor: "pointer",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "#ff8a1f";
-              e.currentTarget.style.boxShadow = "0 0 14px rgba(255,138,31,.4)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "#6b4a1c";
-              e.currentTarget.style.boxShadow = "none";
-            }}
-          >
-            {muted ? "SND OFF" : "SND ON"}
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {session.data && (
+              <button
+                type="button"
+                onClick={() => {
+                  sound.unlock();
+                  sound.click();
+                  setAccountOpen(true);
+                }}
+                title={session.data.user.email ?? session.data.user.displayName}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  border: "1px solid #4a3a72",
+                  background: "#1d1036",
+                  padding: "5px 10px",
+                  cursor: "pointer",
+                  maxWidth: 220,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "#22e8ff";
+                  e.currentTarget.style.boxShadow = "0 0 14px rgba(34,232,255,.4)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "#4a3a72";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
+              >
+                <Avatar
+                  userId={session.data.user.id}
+                  displayName={session.data.user.displayName}
+                  avatarPreset={session.data.user.avatarPreset}
+                  avatarVersion={session.data.user.avatarVersion}
+                  size={22}
+                  ring="#22e8ff"
+                />
+                <span
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: 11,
+                    letterSpacing: 1,
+                    color: "#cfc4f2",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {session.data.user.displayName}
+                </span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={doDeposit}
+              disabled={deposit.isPending || !session.isSuccess}
+              style={{
+                border: "2px solid #ff8a1f",
+                background: "#2a1406",
+                color: "#ff8a1f",
+                fontFamily: "var(--font-display)",
+                fontSize: 11,
+                letterSpacing: 1,
+                padding: "8px 12px",
+                whiteSpace: "nowrap",
+                cursor: deposit.isPending ? "wait" : "pointer",
+                opacity: deposit.isPending ? 0.6 : 1,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#ff8a1f";
+                e.currentTarget.style.color = "#06040d";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "#2a1406";
+                e.currentTarget.style.color = "#ff8a1f";
+              }}
+            >
+              {deposit.isPending ? "…" : "+1000"}
+            </button>
+            <NavLink href="/verify">VERIFY</NavLink>
+            {session.data && !session.data.user.isGuest && (
+              <NavLink href="/auth/logout" hard>
+                LOGOUT
+              </NavLink>
+            )}
+            {!session.data && (
+              <NavLink href="/auth/login?next=/" hard>
+                LOGIN
+              </NavLink>
+            )}
+            {session.data && (session.data.user.role === "admin" || session.data.user.role === "moderator") && (
+              <NavLink href="/admin">
+                STAFF
+              </NavLink>
+            )}
+            <button
+              type="button"
+              onClick={toggleMute}
+              style={{
+                border: "1px solid #6b4a1c",
+                background: "#2a1406",
+                color: "#ffb15c",
+                fontFamily: "var(--font-display)",
+                fontSize: 12,
+                letterSpacing: "1px",
+                padding: "10px 14px",
+                whiteSpace: "nowrap",
+                cursor: "pointer",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "#ff8a1f";
+                e.currentTarget.style.boxShadow = "0 0 14px rgba(255,138,31,.4)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "#6b4a1c";
+                e.currentTarget.style.boxShadow = "none";
+              }}
+            >
+              {muted ? "SND OFF" : "SND ON"}
+            </button>
+          </div>
         </header>
 
         <AccountModal open={accountOpen} onClose={() => setAccountOpen(false)} />
@@ -324,7 +500,11 @@ export default function GameMenu() {
           }}
         >
           <div style={{ transform: `scale(${stageScale})`, transformOrigin: "center center" }}>
-            <RadialMenu nodes={nodes} satellites={satellites} hub={hub} />
+            <RadialMenu
+              nodes={nodes}
+              hub={hub}
+              onHubActivate={activeGroup ? () => setDrilled(null) : undefined}
+            />
           </div>
         </div>
 
@@ -389,8 +569,24 @@ function gameNode(game: GameInfo): RadialNode {
   };
 }
 
-/** Live rooms: poker gets a miniature felt, crash a live flight viewfinder. */
+/** Live rooms: roulette gets a mini wheel, poker a felt, crash a viewfinder. */
 function roomNode(room: LobbyRoom): RadialNode {
+  if (room.gameId === "roulette") {
+    const open = room.state === "betting_open";
+    const live = room.state !== undefined && room.state !== "waiting";
+    const last = (room.recentCrashes ?? [])[0];
+    return {
+      key: room.slug,
+      label: room.name.toUpperCase(),
+      accent: open ? "#5fe08a" : live ? "#22e8ff" : "#8878b8",
+      href: `/rooms/${room.slug}`,
+      live,
+      badge: room.state ? room.state.toUpperCase() : "…",
+      art: <MiniWheel last={last} />,
+      status: `BETS ${room.minBet}–${room.maxBet.toLocaleString()} · ${room.playerCount}/${room.capacity}`,
+      onLaunchSound: () => sound.chipClink(),
+    };
+  }
   if (room.gameId === "holdem") {
     const live = room.state !== undefined && room.state !== "waiting";
     const seated = Math.min(room.playerCount, room.capacity);
@@ -431,6 +627,53 @@ function roomNode(room: LobbyRoom): RadialNode {
     status: `BETS ${room.minBet}–${room.maxBet.toLocaleString()}`,
     onLaunchSound: () => sound.boost(),
   };
+}
+
+/** Miniature European wheel with the last winning pocket in the hub. */
+function MiniWheel({ last }: { last: number | undefined }) {
+  const seg = 360 / 37;
+  return (
+    <span
+      style={{
+        position: "relative",
+        width: 60,
+        height: 60,
+        borderRadius: "50%",
+        display: "inline-block",
+        background:
+          "conic-gradient(from -4.865deg, " +
+          EUROPEAN_ORDER.map((p, i) => {
+            const c = POCKET_COLORS[pocketColor(p)];
+            return `${c} ${(i * seg).toFixed(3)}deg ${((i + 1) * seg).toFixed(3)}deg`;
+          }).join(", ") +
+          ")",
+        boxShadow: "0 0 14px rgba(95,224,138,.35), inset 0 0 0 2px #06040d",
+      }}
+    >
+      <span
+        style={{
+          position: "absolute",
+          inset: 16,
+          borderRadius: "50%",
+          background: "linear-gradient(#1d1036,#0d0619 80%)",
+          border: "1px solid #35205c",
+          display: "grid",
+          placeItems: "center",
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "var(--font-display)",
+            fontSize: 12,
+            color: last === undefined ? "#5c4f80" : pocketColor(last) === "black" ? "#ece6ff" : POCKET_COLORS[pocketColor(last)],
+            textShadow: last === undefined ? "none" : `0 0 8px ${POCKET_COLORS[pocketColor(last)]}`,
+          }}
+        >
+          {last ?? "··"}
+        </span>
+      </span>
+    </span>
+  );
 }
 
 /** Miniature poker felt with seat dots, lifted from the old lobby card. */

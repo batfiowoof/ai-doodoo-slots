@@ -1,5 +1,6 @@
 import RoomGate from "@/components/RoomGate";
 import CrashRoom from "@/components/CrashRoom";
+import RouletteRoom from "@/components/RouletteRoom";
 
 export default async function RoomPage({
   params,
@@ -10,8 +11,11 @@ export default async function RoomPage({
 }) {
   const { slug } = await params;
   const sp = await searchParams;
-  // Dev-only visual demo (?demo=…) renders the crash room without a backend.
+  // Dev-only visual demo (?demo=…) renders a room without a backend.
   if (process.env.NODE_ENV !== "production" && typeof sp?.demo === "string") {
+    if (slug.startsWith("roulette")) {
+      return <RouletteRoom slug={slug} />;
+    }
     return <CrashRoom slug={slug} />;
   }
   return <RoomGate slug={slug} />;

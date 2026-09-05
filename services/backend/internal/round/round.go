@@ -40,6 +40,12 @@ type Config struct {
 	MaxRunning  time.Duration // safety cap on the running phase
 	Curve       func(elapsedSeconds float64) float64
 	RunningFor  func(result game.RoundResult) time.Duration
+	// SpotSettle switches settlement from the crash cashout math to the
+	// engine's SettleBet per chip (roulette-style spot games).
+	SpotSettle bool
+	// HistoryValue projects a resolved result into the recent-results
+	// history; nil uses the result's Multiplier (crash).
+	HistoryValue func(result game.RoundResult) float64
 }
 
 // Machine is one round of a RoundGame in a room.

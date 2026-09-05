@@ -27,6 +27,7 @@ var (
 type SettledBet struct {
 	BetID                int64
 	UserID               int64
+	Spot                 string
 	PayoutCredits        int64
 	MultiplierHundredths int64
 }
@@ -54,6 +55,7 @@ func (i *Intake) HandleGameAction(id ws.Identity, payload json.RawMessage) (map[
 		Action         string  `json:"action"`
 		Credits        int64   `json:"credits"`
 		AutoCashout    float64 `json:"autoCashout"`
+		Spot           string  `json:"spot"`
 		IdempotencyKey string  `json:"idempotencyKey"`
 	}
 	if err := json.Unmarshal(payload, &p); err != nil || p.Action == "" {
@@ -64,16 +66,146 @@ func (i *Intake) HandleGameAction(id ws.Identity, payload json.RawMessage) (map[
 	}
 	switch p.Action {
 	case "place_bet":
+		if p.Spot != "" {
+			return i.PlaceSpotBet(id, p.Credits, p.Spot, p.IdempotencyKey)
+		}
 		hundredths := int64(p.AutoCashout * 100)
 		return i.PlaceBet(id, p.Credits, hundredths, p.IdempotencyKey)
 	case "cash_out":
 		return i.CashOut(id)
+	case "clear_bets":
+		return i.ClearBets(id)
 	default:
 		return nil, coded("bad_request", fmt.Errorf("unknown action %q", p.Action))
 	}
 }
 
 var _ ws.RoomHandler = (*Intake)(nil)
+
+// spotValidator is implemented by spot games (roulette) so the intake can
+// reject unknown cells before any money moves.
+type spotValidator interface {
+	ValidateSpot(spot string) error
+}
+
+func (i *Intake) spotGame() (spotValidator, bool) {
+	vg, ok := i.runner.game.(spotValidator)
+	return vg, ok
+}
+
+// PlaceSpotBet validates and debits one chip on one betting cell during
+// betting_open. Same money path as PlaceBet: wallet debit and the bet row
+// land in one transaction; a failure there removes the in-memory
+// reservation.
+func (i *Intake) PlaceSpotBet(id ws.Identity, credits int64, spot, idemKey string) (map[string]any, error) {
+	if id.Status != "active" {
+		return nil, codedBet(ErrForbiddenStatus)
+	}
+	if credits <= 0 || credits > 1_000_000 || idemKey == "" {
+		return nil, codedBet(ErrInvalidAmount)
+	}
+	vg, ok := i.spotGame()
+	if !ok {
+		return nil, coded("bad_request", fmt.Errorf("this game takes no spot bets"))
+	}
+	if err := vg.ValidateSpot(spot); err != nil {
+		return nil, coded("bad_request", err)
+	}
+	// Room stake tier: enforced server-side from the rooms table.
+	if min, max := i.runner.Limits(); credits < min || credits > max {
+		return nil, coded("out_of_tier", fmt.Errorf("bet must be between %d and %d", min, max))
+	}
+	roundID, m := i.runner.Live()
+	if m == nil || roundID == 0 {
+		return nil, codedBet(ErrUnknownRound)
+	}
+	// Per-round exposure cap: every chip counts toward the same ceiling.
+	if _, max := i.runner.Limits(); m.UserStakeTotal(id.UserID)+credits > max*10 {
+		return nil, coded("table_limit", fmt.Errorf("round stake limit is %d", max*10))
+	}
+	options, _ := json.Marshal(map[string]string{"spot": spot})
+	if err := m.AddSpotBet(id.UserID, credits, spot, options, id.DisplayName); err != nil {
+		return nil, codedBet(err)
+	}
+	betID, balance, err := i.persist.PlaceBet(context.Background(), PlaceBetParams{
+		UserID: id.UserID, RoundID: roundID, GameID: i.runner.game.ID(),
+		Credits: credits, Spot: spot, Options: options, IdempotencyKey: idemKey,
+	})
+	if err != nil {
+		m.RemoveSpotBet(id.UserID, spot)
+		if errors.Is(err, wallet.ErrInsufficientFunds) {
+			return nil, codedBet(wallet.ErrInsufficientFunds)
+		}
+		return nil, codedBet(err)
+	}
+	m.SetBetID(id.UserID, spot, betID)
+	i.publishRoom("bet_placed", map[string]any{
+		"userId":      id.UserID,
+		"displayName": id.DisplayName,
+		"credits":     credits,
+		"spot":        spot,
+		"total":       m.UserStakeTotal(id.UserID),
+	})
+	return map[string]any{
+		"roundId":        roundID,
+		"betCredits":     credits,
+		"spot":           spot,
+		"totalStaked":    m.UserStakeTotal(id.UserID),
+		"balanceCredits": balance,
+	}, nil
+}
+
+// ClearBets refunds every open stake a player holds on the current round.
+// Only during betting_open, one idempotent refund transaction, and the
+// in-memory reservations drop atomically before the money moves.
+func (i *Intake) ClearBets(id ws.Identity) (map[string]any, error) {
+	if id.Status != "active" {
+		return nil, codedBet(ErrForbiddenStatus)
+	}
+	if _, ok := i.spotGame(); !ok {
+		return nil, coded("bad_request", fmt.Errorf("this game takes no spot bets"))
+	}
+	roundID, m := i.runner.Live()
+	if m == nil || roundID == 0 {
+		return nil, codedBet(ErrUnknownRound)
+	}
+	removed := m.ClearBets(id.UserID)
+	if len(removed) == 0 {
+		return map[string]any{"roundId": roundID, "cleared": 0}, nil
+	}
+	var total int64
+	betIDs := make([]int64, 0, len(removed))
+	for _, bet := range removed {
+		total += bet.BetCredits
+		if bet.BetID != 0 {
+			betIDs = append(betIDs, bet.BetID)
+		}
+	}
+	balance, err := i.persist.RefundBets(context.Background(), roundID, id.UserID, total, betIDs)
+	if err != nil {
+		// The refund failed: put the stakes back so the player can retry.
+		for _, bet := range removed {
+			_ = m.AddSpotBet(id.UserID, bet.BetCredits, bet.Spot, bet.Options, bet.DisplayName)
+			if bet.BetID != 0 {
+				m.SetBetID(id.UserID, bet.Spot, bet.BetID)
+			}
+		}
+		if errors.Is(err, wallet.ErrIdempotencyConflict) {
+			return nil, coded("idempotency_conflict", err)
+		}
+		return nil, codedBet(err)
+	}
+	i.publishRoom("bets_cleared", map[string]any{
+		"userId": id.UserID,
+		"total":  total,
+	})
+	return map[string]any{
+		"roundId":        roundID,
+		"cleared":        len(removed),
+		"refundCredits":  total,
+		"balanceCredits": balance,
+	}, nil
+}
 
 // PlaceBet validates and debits a stake during betting_open. The wallet
 // debit and the bet row land in one transaction; a failure there removes
@@ -97,7 +229,10 @@ func (i *Intake) PlaceBet(id ws.Identity, credits, autoHundredths int64, idemKey
 	if err := m.AddBet(id.UserID, credits, autoHundredths, id.DisplayName); err != nil {
 		return nil, codedBet(err)
 	}
-	betID, balance, err := i.persist.PlaceBet(context.Background(), id.UserID, roundID, credits, autoHundredths, idemKey)
+	betID, balance, err := i.persist.PlaceBet(context.Background(), PlaceBetParams{
+		UserID: id.UserID, RoundID: roundID, GameID: i.runner.game.ID(),
+		Credits: credits, AutoHundredths: autoHundredths, IdempotencyKey: idemKey,
+	})
 	if err != nil {
 		m.RemoveBet(id.UserID)
 		if errors.Is(err, wallet.ErrInsufficientFunds) {
@@ -105,7 +240,7 @@ func (i *Intake) PlaceBet(id ws.Identity, credits, autoHundredths int64, idemKey
 		}
 		return nil, codedBet(err)
 	}
-	m.SetBetID(id.UserID, betID)
+	m.SetBetID(id.UserID, "", betID)
 	i.publishRoom("bet_placed", map[string]any{
 		"userId":      id.UserID,
 		"displayName": id.DisplayName,
@@ -160,7 +295,7 @@ func (i *Intake) CashOut(id ws.Identity) (map[string]any, error) {
 // pgPersister additions live here so the Persister interface stays the one
 // money boundary.
 
-func (p *pgPersister) PlaceBet(ctx context.Context, userID, roundID, credits, autoHundredths int64, idemKey string) (int64, int64, error) {
+func (p *pgPersister) PlaceBet(ctx context.Context, arg PlaceBetParams) (int64, int64, error) {
 	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return 0, 0, err
@@ -170,19 +305,28 @@ func (p *pgPersister) PlaceBet(ctx context.Context, userID, roundID, credits, au
 	// Debit first: wallet row FOR UPDATE inside the same transaction as the
 	// ledger insert and the bet row.
 	res, err := wallet.ApplyTx(ctx, tx, wallet.ApplyRequest{
-		UserID:         userID,
+		UserID:         arg.UserID,
 		Kind:           wallet.KindBet,
-		Amount:         -credits,
-		IdempotencyKey: "round:" + strconv.FormatInt(roundID, 10) + ":" + strconv.FormatInt(userID, 10) + ":bet:" + idemKey,
+		Amount:         -arg.Credits,
+		IdempotencyKey: "round:" + strconv.FormatInt(arg.RoundID, 10) + ":" + strconv.FormatInt(arg.UserID, 10) + ":bet:" + arg.IdempotencyKey,
 	})
 	if err != nil {
 		return 0, 0, err
 	}
+	// Spot bets key their unique (round, user, action) index by placement id
+	// so the same cell can be bet, cleared and bet again within one round.
+	action := "bet"
+	if arg.Spot != "" {
+		action = "bet:" + arg.IdempotencyKey
+	}
 	betID, err := store.New(tx).InsertRoundBet(ctx, store.InsertRoundBetParams{
-		UserID:               userID,
-		RoundID:              roundID,
-		BetCredits:           credits,
-		AutoCashoutHundredths: autoHundredths,
+		UserID:                arg.UserID,
+		GameID:                arg.GameID,
+		RoundID:               arg.RoundID,
+		BetCredits:            arg.Credits,
+		AutoCashoutHundredths: arg.AutoHundredths,
+		Action:                action,
+		Outcome:               arg.Options,
 	})
 	if err != nil {
 		return 0, 0, err
@@ -191,6 +335,38 @@ func (p *pgPersister) PlaceBet(ctx context.Context, userID, roundID, credits, au
 		return 0, 0, err
 	}
 	return betID, res.Balance, nil
+}
+
+// RefundBets returns a player's cleared stakes in one idempotent
+// transaction: one refund ledger entry for the total, and every bet row
+// marked cleared for the audit trail.
+func (p *pgPersister) RefundBets(ctx context.Context, roundID, userID, total int64, betIDs []int64) (int64, error) {
+	if total <= 0 {
+		return 0, fmt.Errorf("refund of %d credits", total)
+	}
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+	res, err := wallet.ApplyTx(ctx, tx, wallet.ApplyRequest{
+		UserID:         userID,
+		Kind:           wallet.KindRefund,
+		Amount:         total,
+		IdempotencyKey: "round:" + strconv.FormatInt(roundID, 10) + ":" + strconv.FormatInt(userID, 10) + ":clear",
+	})
+	if err != nil {
+		return 0, err
+	}
+	if len(betIDs) > 0 {
+		if err := store.New(tx).MarkBetsCleared(ctx, betIDs); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return res.Balance, nil
 }
 
 func (p *pgPersister) MarkCashout(ctx context.Context, roundID, userID, hundredths int64) error {

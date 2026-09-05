@@ -10,24 +10,30 @@ import (
 )
 
 const insertRoundBet = `-- name: InsertRoundBet :one
-INSERT INTO bets (user_id, game_id, round_id, bet_credits, server_seed_id, client_seed, nonce, action, auto_cashout_hundredths)
-VALUES ($1, 'crash', $2, $3, NULL, NULL, NULL, 'bet', $4)
+INSERT INTO bets (user_id, game_id, round_id, bet_credits, server_seed_id, client_seed, nonce, action, auto_cashout_hundredths, outcome)
+VALUES ($1, $2, $3, $4, NULL, NULL, NULL, $5, $6, $7)
 RETURNING id
 `
 
 type InsertRoundBetParams struct {
 	UserID                int64
+	GameID                string
 	RoundID               int64
 	BetCredits            int64
+	Action                string
 	AutoCashoutHundredths int64
+	Outcome               []byte
 }
 
 func (q *Queries) InsertRoundBet(ctx context.Context, arg InsertRoundBetParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertRoundBet,
 		arg.UserID,
+		arg.GameID,
 		arg.RoundID,
 		arg.BetCredits,
+		arg.Action,
 		arg.AutoCashoutHundredths,
+		arg.Outcome,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -61,6 +67,15 @@ type MarkBetCashoutByRoundParams struct {
 
 func (q *Queries) MarkBetCashoutByRound(ctx context.Context, arg MarkBetCashoutByRoundParams) error {
 	_, err := q.db.Exec(ctx, markBetCashoutByRound, arg.RoundID, arg.UserID, arg.CashoutHundredths)
+	return err
+}
+
+const markBetsCleared = `-- name: MarkBetsCleared :exec
+UPDATE bets SET action = action || ':cleared' WHERE id = ANY($1::bigint[])
+`
+
+func (q *Queries) MarkBetsCleared(ctx context.Context, dollar_1 []int64) error {
+	_, err := q.db.Exec(ctx, markBetsCleared, dollar_1)
 	return err
 }
 

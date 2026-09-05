@@ -62,12 +62,15 @@ func TestSettleTwoHundredPlayersAtomically(t *testing.T) {
 					t.Errorf("add bet: %v", err)
 					return
 				}
-				betID, _, err := persist.PlaceBet(ctx, userID, roundID, stake, 200, fmt.Sprintf("run%d-%d", run, userID))
+				betID, _, err := persist.PlaceBet(ctx, PlaceBetParams{
+					UserID: userID, RoundID: roundID, GameID: "crash",
+					Credits: stake, AutoHundredths: 200, IdempotencyKey: fmt.Sprintf("run%d-%d", run, userID),
+				})
 				if err != nil {
 					t.Errorf("place bet: %v", err)
 					return
 				}
-				m.SetBetID(userID, betID)
+				m.SetBetID(userID, "", betID)
 			}(userIDs[i])
 		}
 		wg.Wait()

@@ -31,6 +31,7 @@ const (
 	KindBet         = "bet"
 	KindPayout      = "payout"
 	KindAdminAdjust = "admin_adjust"
+	KindRefund      = "refund"
 )
 
 var (

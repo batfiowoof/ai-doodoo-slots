@@ -1,13 +1,13 @@
 "use client";
 
-// The lobby wheel. Nodes fan out of a central hub onto an outer ring; account
-// satellites ride a smaller inner orbit. Geometry and motion live here — the
-// lobby screen passes in node/satellite content and the hub face.
+// The lobby wheel. Nodes fan out of a central hub onto an elliptical ring —
+// an ellipse because viewports are widescreen and a circle wastes the
+// corners. Geometry and motion live here; the lobby screen passes in the
+// node content and the hub face.
 //
-// The hub click is a prize-wheel shuffle: the whole game ring orbits the hub
-// by a few random turns (radSpinTo on the ring container) while every node
-// anchor counter-rotates by the same amount (radCounterSpinTo), so the tiles
-// stay upright and land on a fresh random slot each spin.
+// The hub click is a shuffle: the cards retract into the hub, then re-deal
+// to fresh random seats (the deal order rotates by a random offset). That
+// reads the same as a prize-wheel spin but works on any ring geometry.
 
 import {
   useEffect,
@@ -30,15 +30,15 @@ export interface RadialNode {
   art?: ReactNode;
   /** Bottom line of small print. */
   status?: string;
-  /** Corner tag, e.g. a live multiplier or room state. */
+  /** Corner tag, e.g. a live count or room state. */
   badge?: string;
   /** Pulsing border + badge treatment for live rooms. */
   live?: boolean;
-  /** Navigation target. Without one, the node is a button satellite. */
+  /** Navigation target. Without one, the node is a button (groups, actions). */
   href?: string;
   /** Auth routes navigate with a plain anchor (no client-side launch). */
   hard?: boolean;
-  /** Button-satellite action (account modal, deposit kiosk). */
+  /** Button action (group drill-down). */
   onActivate?: () => void;
   disabled?: boolean;
   /** Launch sound; defaults to sound.click(). */
@@ -46,63 +46,45 @@ export interface RadialNode {
 }
 
 // Design-size stage; the lobby scales it to fit the viewport.
-const STAGE_W = 1240;
-const STAGE_H = 880;
+const STAGE_W = 1480;
+const STAGE_H = 640;
 const CX = STAGE_W / 2;
 const CY = STAGE_H / 2;
-const HUB_D = 280;
-const SAT_R = 225;
-const NODE_W = 200;
-const NODE_H = 136;
-// Satellites are casino chips: a round face with the label stacked below.
-const SAT_D = 94;
-const SAT_W = 132;
-const SAT_H = 144;
+const HUB_D = 300;
+const NODE_W = 212;
+const NODE_H = 150;
 
-// Prize-wheel orbit timing; the ring and its counter-rotating anchors must
-// share duration + easing so tiles land upright.
-const ORBIT_MS = 1700;
-const ORBIT_EASE = "cubic-bezier(.32,.08,.26,1)";
-const SPIN_ANIM = `radSpinTo ${ORBIT_MS}ms ${ORBIT_EASE} 1 forwards`;
-const COUNTER_ANIM = `radCounterSpinTo ${ORBIT_MS}ms ${ORBIT_EASE} 1 forwards`;
-
-function gameRadius(n: number): number {
-  if (n <= 3) return 296;
-  if (n <= 5) return 316;
-  if (n <= 6) return 332;
-  if (n <= 8) return 356;
-  return 372;
+// Ellipse per node count: widescreen, so horizontal room is cheap.
+function gameEllipse(n: number): { rx: number; ry: number } {
+  if (n <= 3) return { rx: 540, ry: 208 };
+  if (n <= 5) return { rx: 575, ry: 222 };
+  if (n <= 8) return { rx: 600, ry: 234 };
+  return { rx: 615, ry: 240 };
 }
 
-function slot(i: number, n: number, r: number): { x: number; y: number } {
+function slot(i: number, n: number, rx: number, ry: number): { x: number; y: number } {
   const deg = -90 + (i * 360) / n;
   const rad = (deg * Math.PI) / 180;
-  return { x: CX + r * Math.cos(rad), y: CY + r * Math.sin(rad) };
-}
-
-interface PlacedNode {
-  node: RadialNode;
-  x: number;
-  y: number;
-  delay: number;
-  satellite: boolean;
+  return { x: CX + rx * Math.cos(rad), y: CY + ry * Math.sin(rad) };
 }
 
 export default function RadialMenu({
   nodes,
-  satellites,
   hub,
+  onHubActivate,
 }: {
   nodes: RadialNode[];
-  satellites: RadialNode[];
   hub: ReactNode;
+  /** Overrides the hub shuffle — used to climb back up the game tree. */
+  onHubActivate?: () => void;
 }) {
   const router = useRouter();
-  const [rot, setRot] = useState(0);
-  const [spin, setSpin] = useState<{ delta: number } | null>(null);
+  const [spinning, setSpinning] = useState(false);
+  const [offset, setOffset] = useState(0);
   const [launchKey, setLaunchKey] = useState<string | null>(null);
+  const anchors = useRef(new Map<string, HTMLDivElement>());
+  const spinAnims = useRef<Animation[]>([]);
   const timers = useRef<number[]>([]);
-  const spinning = spin !== null;
 
   useEffect(
     () => () => {
@@ -111,52 +93,63 @@ export default function RadialMenu({
     [],
   );
 
-  const r = gameRadius(nodes.length);
-  // Slot coordinates are stage-absolute here; the orbit containers below are
-  // anchored at the hub center, so children get center-relative offsets.
-  const placedGames: PlacedNode[] = nodes.map((node, i) => ({
-    node,
-    ...slot(i, nodes.length, r),
-    delay: i * 70,
-    satellite: false,
-  }));
-  // Satellites interleave on the inner orbit, offset half a game step. They
-  // stay put while the game ring shuffles — the wheel spins, the table doesn't.
-  const placedSats: PlacedNode[] = satellites.map((node, i) => {
-    const deg = -90 + ((i + 0.5) * 360) / Math.max(satellites.length, 1);
-    const rad = (deg * Math.PI) / 180;
-    return {
-      node,
-      x: CX + SAT_R * Math.cos(rad),
-      y: CY + SAT_R * Math.sin(rad),
-      delay: nodes.length * 70 + 60 + i * 60,
-      satellite: true,
-    };
+  const n = Math.max(nodes.length, 1);
+  const { rx, ry } = gameEllipse(n);
+  // Seat order accumulates a random offset on every shuffle, so the same
+  // nodes land on fresh, evenly spaced seats each time.
+  const placed = nodes.map((node, i) => {
+    const seat = (i + offset) % n;
+    return { node, ...slot(seat, n, rx, ry), delay: seat * 70 };
   });
 
+  // The hub shuffle: every card orbits the ellipse — a couple of laps plus a
+  // random whole seat — decelerating onto fresh, evenly spaced positions.
+  // Tiles never tilt: they translate along the ring, so the old
+  // rotate-the-container trick (circle-only) isn't needed.
+  const SPIN_MS = 1700;
   const spinWheel = () => {
-    if (spinning || launchKey) return;
+    if (spinning || launchKey || n < 2) return;
     sound.unlock();
     sound.click();
-    const n = Math.max(nodes.length, 1);
-    const step = 360 / n;
-    // A couple of full turns plus a random whole slot: the cards reshuffle
-    // every spin, and always land evenly on the ring.
-    const delta =
-      (2 + Math.floor(Math.random() * 2)) * 360 + (1 + Math.floor(Math.random() * (n - 1))) * step;
-    setSpin({ delta });
-    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      for (let t = 1; t <= 14; t++) {
-        timers.current.push(window.setTimeout(() => sound.winTick(t), t * 110));
+    const k = 1 + Math.floor(Math.random() * (n - 1));
+    const laps = 2 + Math.floor(Math.random() * 2);
+    const stepDeg = 360 / n;
+    const easeOut = (t: number) => 1 - Math.pow(1 - t, 4);
+    const anims: Animation[] = [];
+    placed.forEach((p, i) => {
+      const el = anchors.current.get(p.node.key);
+      if (!el) return;
+      const a0 = -90 + ((i + offset) % n) * stepDeg;
+      const a1 = a0 + laps * 360 + k * stepDeg;
+      const frames: Keyframe[] = [];
+      const STEPS = 30;
+      for (let sIdx = 0; sIdx <= STEPS; sIdx++) {
+        const t = sIdx / STEPS;
+        const ang = a0 + (a1 - a0) * easeOut(t);
+        const rad = (ang * Math.PI) / 180;
+        const x = CX + rx * Math.cos(rad);
+        const y = CY + ry * Math.sin(rad);
+        frames.push({ transform: `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px)` });
       }
+      anims.push(el.animate(frames, { duration: SPIN_MS, fill: "forwards" }));
+    });
+    spinAnims.current = anims;
+    setSpinning(true);
+    for (let t = 1; t <= 14; t++) {
+      timers.current.push(window.setTimeout(() => sound.winTick(t), (t * SPIN_MS) / 16));
     }
     timers.current.push(
       window.setTimeout(() => {
-        setRot((prev) => prev + delta);
-        setSpin(null);
+        // The animations hold the landing spot (fill: forwards); commit the
+        // new seats to React, then release the animations onto the identical
+        // inline transforms — zero visual seam.
+        anims.forEach((a) => a.cancel());
+        spinAnims.current = [];
+        setOffset((o) => (o + k) % n);
         sound.bell();
-      }, ORBIT_MS + 50),
+      }, SPIN_MS + 30),
     );
+    timers.current.push(window.setTimeout(() => setSpinning(false), SPIN_MS + 80));
   };
 
   const launch = (node: RadialNode) => {
@@ -190,15 +183,10 @@ export default function RadialMenu({
     launch(node);
   };
 
-  const orbitVars = {
-    ["--spin-from" as string]: `${rot}deg`,
-    ["--spin-to" as string]: `${rot + (spin?.delta ?? 0)}deg`,
-  };
-
   return (
     <div style={{ position: "relative", width: STAGE_W, height: STAGE_H, flex: "none" }}>
-      {/* Spoke lines hub → node, under everything. They rotate with the ring
-          so they always point where the cards are. */}
+      {/* Spoke lines hub → node, under everything. They fade while the wheel
+          shuffles, then redraw to the new seats. */}
       <div
         style={{
           position: "absolute",
@@ -214,29 +202,19 @@ export default function RadialMenu({
           style={{
             position: "absolute",
             inset: 0,
-            transform: `rotate(${rot}deg)`,
-            animation: spinning ? SPIN_ANIM : undefined,
-            ...orbitVars,
+            opacity: spinning ? 0.15 : 1,
+            transition: "opacity .3s ease-out",
           }}
           aria-hidden
         >
-          {[...placedGames, ...placedSats].map(({ x, y, satellite }) => (
-            <line
-              key={`spoke-${x}-${y}`}
-              x1={CX}
-              y1={CY}
-              x2={x}
-              y2={y}
-              stroke={satellite ? "#241640" : "#2a1848"}
-              strokeWidth={satellite ? 1 : 2}
-              strokeDasharray={satellite ? "3 9" : undefined}
-            />
+          {placed.map(({ x, y }) => (
+            <line key={`spoke-${x}-${y}`} x1={CX} y1={CY} x2={x} y2={y} stroke="#2a1848" strokeWidth={2} />
           ))}
         </svg>
       </div>
 
-      {/* Decorative rings: dashed cyan drift, crisp conic ticks, dashed pink
-          counter-drift. They draw in, then rotate forever. */}
+      {/* Decorative rings: a slowly rotating dashed circle inside the ellipse,
+          plus static elliptical tick and rim rings. */}
       <div
         style={{
           position: "absolute",
@@ -249,22 +227,29 @@ export default function RadialMenu({
           pointerEvents: "none",
         }}
       >
-        <Ring r={286} style={{ border: "2px dashed #22e8ff55", animation: "radSpin 80s linear infinite" }} />
         <Ring
-          r={r}
+          r={150}
+          style={{ border: "2px dashed #22e8ff55", animation: "radSpin 80s linear infinite" }}
+        />
+        <div
           style={{
+            position: "absolute",
+            left: -rx,
+            top: -ry,
+            width: rx * 2,
+            height: ry * 2,
+            borderRadius: "50%",
             background:
               "repeating-conic-gradient(from 0deg, rgba(34,232,255,0) 0deg 11deg, rgba(34,232,255,.6) 11deg 12.2deg)",
-            maskImage: "radial-gradient(closest-side, transparent 85.5%, #000 86.5%, #000 96.5%, transparent 97.5%)",
+            maskImage: "radial-gradient(ellipse closest-side, transparent 85%, #000 86%, #000 97%, transparent 98%)",
             WebkitMaskImage:
-              "radial-gradient(closest-side, transparent 85.5%, #000 86.5%, #000 96.5%, transparent 97.5%)",
-            animation: "radSpin 16s linear infinite",
+              "radial-gradient(ellipse closest-side, transparent 85%, #000 86%, #000 97%, transparent 98%)",
           }}
         />
-        <Ring r={404} style={{ border: "2px dashed #ff2d9544", animation: "radSpin 110s linear infinite reverse" }} />
+        <Ellipse rx={rx + 44} ry={ry + 40} style={{ border: "2px dashed #ff2d9544" }} />
       </div>
 
-      {/* Hub whirl wrapper: one-shot 720° easter egg; 720 ≡ 0 so it lands clean. */}
+      {/* Hub whirl while shuffling: one-shot 720°; 720 ≡ 0 so it lands clean. */}
       <div
         style={{
           position: "absolute",
@@ -278,8 +263,16 @@ export default function RadialMenu({
       >
         <button
           type="button"
-          onClick={spinWheel}
-          title="SPIN THE HOUSE"
+          onClick={() => {
+            if (onHubActivate) {
+              sound.unlock();
+              sound.click();
+              onHubActivate();
+              return;
+            }
+            spinWheel();
+          }}
+          title={onHubActivate ? "BACK TO THE FLOOR" : "SHUFFLE THE FLOOR"}
           style={{
             position: "absolute",
             left: -HUB_D / 2,
@@ -303,54 +296,22 @@ export default function RadialMenu({
         </button>
       </div>
 
-      {/* The game ring: one rotating container, nodes counter-rotated inside
-          so the cards orbit the hub but never tilt. */}
-      <div
-        style={{
-          position: "absolute",
-          left: CX,
-          top: CY,
-          width: 0,
-          height: 0,
-          zIndex: 2,
-          transform: `rotate(${rot}deg)`,
-          animation: spinning ? SPIN_ANIM : undefined,
-          ...orbitVars,
-        }}
-      >
-        {placedGames.map(({ node, x, y, delay }) => (
-          <WheelNode
-            key={node.key}
-            node={node}
-            x={x - CX}
-            y={y - CY}
-            delay={delay}
-            orbit
-            counterRot={rot}
-            spinning={spinning}
-            launchKey={launchKey}
-            onActivate={activate}
-          />
-        ))}
-      </div>
-
-      {/* Action chips: not part of the shuffle. */}
-      <div style={{ position: "absolute", left: CX, top: CY, width: 0, height: 0, zIndex: 2 }}>
-        {placedSats.map(({ node, x, y, delay }) => (
-          <WheelNode
-            key={node.key}
-            node={node}
-            x={x - CX}
-            y={y - CY}
-            delay={delay}
-            orbit={false}
-            counterRot={0}
-            spinning={spinning}
-            launchKey={launchKey}
-            onActivate={activate}
-          />
-        ))}
-      </div>
+      {/* The game ring. Anchors register themselves so the shuffle can orbit
+          them along the ellipse. */}
+      {placed.map(({ node, x, y, delay }) => (
+        <WheelNode
+          key={node.key}
+          node={node}
+          x={x}
+          y={y}
+          delay={delay}
+          launchKey={launchKey}
+          onActivate={activate}
+          anchorRef={(el) => {
+            if (el) anchors.current.set(node.key, el);
+          }}
+        />
+      ))}
 
       {/* Warp flash on launch — portaled so the stage's scale() can't dim it. */}
       {launchKey &&
@@ -387,58 +348,71 @@ function Ring({ r, style }: { r: number; style?: CSSProperties }) {
   );
 }
 
+function Ellipse({ rx, ry, style }: { rx: number; ry: number; style?: CSSProperties }) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: -rx,
+        top: -ry,
+        width: rx * 2,
+        height: ry * 2,
+        borderRadius: "50%",
+        ...style,
+      }}
+    />
+  );
+}
+
 function WheelNode({
   node,
   x,
   y,
   delay,
-  orbit,
-  counterRot,
-  spinning,
   launchKey,
   onActivate,
+  anchorRef,
 }: {
   node: RadialNode;
   x: number;
   y: number;
   delay: number;
-  /** Inside the rotating ring container: counter-rotate to stay upright. */
-  orbit: boolean;
-  counterRot: number;
-  spinning: boolean;
   launchKey: string | null;
   onActivate: (node: RadialNode, e?: MouseEvent) => void;
+  /** Registered so the hub shuffle can orbit this card along the ellipse. */
+  anchorRef: (el: HTMLDivElement | null) => void;
 }) {
   const [hover, setHover] = useState(false);
-  const dx = -x;
-  const dy = -y;
-  const w = orbit ? NODE_W : SAT_W;
-  const h = orbit ? NODE_H : SAT_H;
+  const dx = CX - x;
+  const dy = CY - y;
 
   const launching = launchKey === node.key;
-  const retracting = launchKey !== null && !launching;
+  const launchRetract = launchKey !== null && !launching;
 
+  // The anchor is the card's seat on the ellipse. Positioned by transform so
+  // the shuffle's Web Animations can glide it around the ring.
   const anchor: CSSProperties = {
     position: "absolute",
-    left: x,
-    top: y,
+    left: 0,
+    top: 0,
     width: 0,
     height: 0,
-    transform: orbit ? `rotate(${-counterRot}deg)` : undefined,
-    animation: orbit && spinning ? COUNTER_ANIM : undefined,
+    transform: `translate(${x}px, ${y}px)`,
+    willChange: "transform",
+    zIndex: launching ? 6 : node.live ? 3 : 2,
   };
 
   const layer: CSSProperties = {
     position: "absolute",
-    left: -w / 2,
-    top: -h / 2,
-    width: w,
-    height: h,
+    left: -NODE_W / 2,
+    top: -NODE_H / 2,
+    width: NODE_W,
+    height: NODE_H,
     transition: "transform 160ms cubic-bezier(.2,.85,.3,1)",
     transform: hover && !launchKey ? "translateY(-6px) scale(1.09)" : undefined,
     animation: launching
       ? "radLaunch .45s cubic-bezier(.45,-.25,.65,.4) forwards"
-      : retracting
+      : launchRetract
         ? "radRetract .32s ease-in both"
         : undefined,
   };
@@ -447,95 +421,94 @@ function WheelNode({
     height: "100%",
     ["--dx" as string]: `${dx}px`,
     ["--dy" as string]: `${dy}px`,
-    animation: `radNodeIn .55s cubic-bezier(.2,1.4,.4,1) ${delay}ms both${
-      spinning && !orbit ? ", radWobble .5s ease-in-out infinite" : ""
-    }`,
+    animation: `radNodeIn .55s cubic-bezier(.2,1.4,.4,1) ${delay}ms both`,
   };
 
-  const tile: CSSProperties = orbit
-    ? {
-        width: "100%",
-        height: "100%",
-        boxSizing: "border-box",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 0,
-        padding: "10px 12px 8px",
-        background: "linear-gradient(#170c2b,#0d0619)",
-        border: `2px solid ${hover || (node.live && !orbit) ? node.accent : "#35205c"}`,
-        color: "inherit",
-        textDecoration: "none",
-        cursor: node.disabled ? "default" : "pointer",
-        opacity: node.disabled ? 0.55 : 1,
-        boxShadow: hover ? `0 0 34px ${node.accent}80` : `0 0 22px ${node.accent}26`,
-        ["--pulse" as string]: `${node.accent}99`,
-        animation: node.live ? "radLivePulse 1.7s ease-in-out infinite" : undefined,
-      }
-    : {
-        width: "100%",
-        height: "100%",
-        boxSizing: "border-box",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "flex-start",
-        gap: 7,
-        background: "transparent",
-        border: "none",
-        padding: 0,
-        color: "inherit",
-        textDecoration: "none",
-        cursor: node.disabled ? "default" : "pointer",
-        opacity: node.disabled ? 0.55 : 1,
-      };
-
-  // Round chip face with a dashed edge print, like a poker chip.
-  const chip: CSSProperties = {
-    width: SAT_D,
-    height: SAT_D,
-    borderRadius: "50%",
-    position: "relative",
-    display: "grid",
-    placeItems: "center",
-    border: `2px solid ${hover ? node.accent : "#4a3a72"}`,
-    background: "linear-gradient(#1d1036,#0d0619 80%)",
-    boxShadow: hover ? `0 0 32px ${node.accent}80` : `0 0 16px ${node.accent}26`,
-    transition: "border-color 160ms ease-out, box-shadow 160ms ease-out",
-    flex: "none",
-  };
-  const chipRing: CSSProperties = {
-    position: "absolute",
-    inset: 5,
-    borderRadius: "50%",
-    border: `1px dashed ${hover ? `${node.accent}aa` : "#4a3a72"}`,
-    pointerEvents: "none",
+  const tile: CSSProperties = {
+    width: "100%",
+    height: "100%",
+    boxSizing: "border-box",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 0,
+    padding: "12px 14px 10px",
+    background: "linear-gradient(#170c2b,#0d0619)",
+    border: `2px solid ${hover || node.live ? node.accent : "#35205c"}`,
+    color: "inherit",
+    textDecoration: "none",
+    cursor: node.disabled ? "default" : "pointer",
+    opacity: node.disabled ? 0.55 : 1,
+    boxShadow: hover ? `0 0 36px ${node.accent}80` : `0 0 22px ${node.accent}26`,
+    ["--pulse" as string]: `${node.accent}99`,
+    animation: node.live ? "radLivePulse 1.7s ease-in-out infinite" : undefined,
   };
 
-  const label = (
-    <span
-      style={{
-        fontFamily: "var(--font-display)",
-        fontSize: orbit ? 13 : 11,
-        letterSpacing: 1,
-        lineHeight: orbit ? 1.3 : undefined,
-        color: hover ? "#fff" : orbit ? node.accent : "#cfc4f2",
-        textShadow: hover ? `0 0 10px ${node.accent}` : `0 0 8px ${node.accent}59`,
-        overflow: "hidden",
-        textOverflow: orbit ? undefined : "ellipsis",
-        whiteSpace: orbit ? "normal" : "nowrap",
-        flex: orbit ? 1 : undefined,
-        minWidth: orbit ? 0 : undefined,
-        maxWidth: orbit ? "100%" : SAT_W,
-        textAlign: "center",
-      }}
-    >
-      {node.label}
-    </span>
+  return (
+    <div style={anchor} ref={anchorRef}>
+      <div style={layer}>
+        <div style={fan}>
+          {node.href ? (
+            node.hard ? (
+              <a
+                href={node.href}
+                style={tile}
+                onMouseEnter={(e) => {
+                  if (node.disabled) return;
+                  sound.unlock();
+                  sound.winTick(0);
+                  setHover(true);
+                  e.stopPropagation();
+                }}
+                onMouseLeave={() => setHover(false)}
+                onClick={() => onActivate(node)}
+              >
+                {inner(node, hover)}
+              </a>
+            ) : (
+              <Link
+                href={node.href}
+                style={tile}
+                onMouseEnter={(e) => {
+                  if (node.disabled) return;
+                  sound.unlock();
+                  sound.winTick(0);
+                  setHover(true);
+                  e.stopPropagation();
+                }}
+                onMouseLeave={() => setHover(false)}
+                onClick={(e) => onActivate(node, e)}
+              >
+                {inner(node, hover)}
+              </Link>
+            )
+          ) : (
+            <button
+              type="button"
+              style={tile}
+              disabled={node.disabled}
+              onMouseEnter={(e) => {
+                if (node.disabled) return;
+                sound.unlock();
+                sound.winTick(0);
+                setHover(true);
+                e.stopPropagation();
+              }}
+              onMouseLeave={() => setHover(false)}
+              onClick={() => onActivate(node)}
+            >
+              {inner(node, hover)}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
+}
 
-  const inner = orbit ? (
+function inner(node: RadialNode, hover: boolean): ReactNode {
+  return (
     <>
       <span
         style={{
@@ -543,20 +516,35 @@ function WheelNode({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: 6,
+          gap: 8,
         }}
       >
-        {label}
+        <span
+          style={{
+            fontFamily: "var(--font-display)",
+            fontSize: 15,
+            letterSpacing: 1,
+            lineHeight: 1.3,
+            color: hover ? "#fff" : node.accent,
+            textShadow: hover ? `0 0 10px ${node.accent}` : `0 0 8px ${node.accent}59`,
+            overflow: "hidden",
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
+          {node.label}
+        </span>
         {node.badge && (
           <span
             style={{
               fontFamily: "var(--font-display)",
-              fontSize: 10,
+              fontSize: 12,
               letterSpacing: 1,
               color: node.accent,
               textShadow: `0 0 8px ${node.accent}`,
               border: `1px solid ${node.accent}`,
-              padding: "2px 5px",
+              padding: "3px 7px",
+              whiteSpace: "nowrap",
               animation: node.live ? "hintBlink 1.5s steps(1) infinite" : undefined,
             }}
           >
@@ -582,7 +570,7 @@ function WheelNode({
         <span
           style={{
             fontFamily: "var(--font-body)",
-            fontSize: 16,
+            fontSize: 18,
             lineHeight: 1.1,
             color: hover ? "#cfc4f2" : "#8878b8",
             whiteSpace: "nowrap",
@@ -592,93 +580,5 @@ function WheelNode({
         </span>
       )}
     </>
-  ) : (
-    <>
-      <span style={chip}>
-        <span style={chipRing} />
-        {node.art ?? (
-          <span
-            style={{
-              fontFamily: "var(--font-display)",
-              fontSize: 24,
-              color: node.accent,
-              textShadow: `0 0 10px ${node.accent}`,
-            }}
-          >
-            {node.label.slice(0, 1)}
-          </span>
-        )}
-      </span>
-      {label}
-      {node.status && (
-        <span
-          style={{
-            fontFamily: "var(--font-body)",
-            fontSize: 14,
-            lineHeight: 1.1,
-            color: node.accent,
-            textAlign: "center",
-          }}
-        >
-          {node.status}
-        </span>
-      )}
-    </>
-  );
-
-  const enter = (e: MouseEvent) => {
-    if (node.disabled) return;
-    sound.unlock();
-    sound.winTick(0);
-    setHover(true);
-    e.stopPropagation();
-  };
-
-  return (
-    <div
-      style={{
-        ...anchor,
-        zIndex: launching ? 6 : node.live && orbit ? 3 : 2,
-      }}
-    >
-      <div style={layer}>
-        <div style={fan}>
-          {node.href ? (
-            node.hard ? (
-              <a
-                href={node.href}
-                style={tile}
-                onMouseEnter={enter}
-                onMouseLeave={() => setHover(false)}
-                onClick={() => onActivate(node)}
-              >
-                {inner}
-              </a>
-            ) : (
-              <Link
-                href={node.href}
-                style={tile}
-                onMouseEnter={enter}
-                onMouseLeave={() => setHover(false)}
-                onClick={(e) => onActivate(node, e)}
-              >
-                {inner}
-              </Link>
-            )
-          ) : (
-            <button
-              type="button"
-              style={tile}
-              disabled={node.disabled}
-              onMouseEnter={enter}
-              onMouseLeave={() => setHover(false)}
-              onClick={() => onActivate(node)}
-            >
-              {inner}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
   );
 }

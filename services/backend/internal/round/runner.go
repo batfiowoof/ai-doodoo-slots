@@ -17,6 +17,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// PlaceBetParams carries one stake to the persister. Spot is empty for
+// crash-style bets; spot games pass their cell id and per-bet options.
+type PlaceBetParams struct {
+	UserID         int64
+	RoundID        int64
+	GameID         string
+	Credits        int64
+	AutoHundredths int64
+	Spot           string
+	Options        json.RawMessage
+	IdempotencyKey string
+}
+
 // Persister records round transitions and moves money for bets. The
 // production implementation writes Postgres; tests use the no-op.
 type Persister interface {
@@ -25,9 +38,12 @@ type Persister interface {
 	Settle(ctx context.Context, roundID int64, result game.RoundResult) error
 	// PlaceBet debits the stake and inserts the bet row in one transaction,
 	// returning the bet row id and post-debit balance.
-	PlaceBet(ctx context.Context, userID, roundID, credits, autoHundredths int64, idemKey string) (int64, int64, error)
+	PlaceBet(ctx context.Context, arg PlaceBetParams) (int64, int64, error)
 	// MarkCashout records the receipt-time multiplier on the bet row.
 	MarkCashout(ctx context.Context, roundID, userID, hundredths int64) error
+	// RefundBets returns a player's cleared stakes in one idempotent
+	// transaction, returning the post-refund balance.
+	RefundBets(ctx context.Context, roundID, userID, total int64, betIDs []int64) (int64, error)
 	// SettleRound pays every winner in one atomic transaction.
 	SettleRound(ctx context.Context, roundID int64, settled []SettledBet) error
 }
@@ -68,11 +84,15 @@ func (NoopPersister) Transition(context.Context, int64, string) error { return n
 
 func (NoopPersister) Settle(context.Context, int64, game.RoundResult) error { return nil }
 
-func (NoopPersister) PlaceBet(context.Context, int64, int64, int64, int64, string) (int64, int64, error) {
+func (NoopPersister) PlaceBet(context.Context, PlaceBetParams) (int64, int64, error) {
 	return 1, 0, nil
 }
 
 func (NoopPersister) MarkCashout(context.Context, int64, int64, int64) error { return nil }
+
+func (NoopPersister) RefundBets(context.Context, int64, int64, int64, []int64) (int64, error) {
+	return 0, nil
+}
 
 func (NoopPersister) SettleRound(context.Context, int64, []SettledBet) error { return nil }
 
@@ -231,7 +251,7 @@ func (r *Runner) runRound(ctx context.Context) error {
 					settled := make([]SettledBet, 0)
 					for _, s := range m.Settlements() {
 						settled = append(settled, SettledBet{
-							BetID: s.BetID, UserID: s.UserID,
+							BetID: s.BetID, UserID: s.UserID, Spot: s.Spot,
 							PayoutCredits:        s.PayoutCredits,
 							MultiplierHundredths: s.MultiplierHundredths,
 						})
@@ -240,9 +260,16 @@ func (r *Runner) runRound(ctx context.Context) error {
 						r.logger.Error("settle round", "room", r.room, "round", roundID, "err", err)
 						return err
 					}
-					// History + per-player payouts for the clients.
+					// History + per-player payouts for the clients. The
+					// history projection is game-specific (crash records the
+					// crash multiplier; roulette the winning pocket).
+					hv := r.cfg.HistoryValue
+					hvValue := m.Result().Multiplier
+					if hv != nil {
+						hvValue = hv(m.Result())
+					}
 					r.liveMu.Lock()
-					r.history = append([]float64{m.Result().Multiplier}, r.history...)
+					r.history = append([]float64{hvValue}, r.history...)
 					if len(r.history) > 10 {
 						r.history = r.history[:10]
 					}
@@ -250,9 +277,13 @@ func (r *Runner) runRound(ctx context.Context) error {
 					payouts := make([]map[string]any, 0, len(settled))
 					for _, s := range settled {
 						if s.PayoutCredits > 0 {
-							payouts = append(payouts, map[string]any{
+							entry := map[string]any{
 								"userId": s.UserID, "payoutCredits": s.PayoutCredits,
-							})
+							}
+							if s.Spot != "" {
+								entry["spot"] = s.Spot
+							}
+							payouts = append(payouts, entry)
 						}
 					}
 					raw, _ := json.Marshal(map[string]any{"payouts": payouts})
