@@ -64,6 +64,23 @@ type ChainSeed struct {
 	ChainGroup int64
 }
 
+type ChatMessage struct {
+	ID        int64
+	UserID    int64
+	Kind      string
+	Body      string
+	Deleted   bool
+	CreatedAt time.Time
+}
+
+type ChatMute struct {
+	UserID     int64
+	MutedUntil time.Time
+	Reason     string
+	MutedBy    pgtype.Int8
+	CreatedAt  time.Time
+}
+
 type EmailToken struct {
 	ID        int64
 	UserID    int64

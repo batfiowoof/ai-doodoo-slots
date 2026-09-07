@@ -162,7 +162,7 @@ func TestSessionRevocationClosesSocket(t *testing.T) {
 	// Wait for the subscription to register.
 	deadline := (clock.Real{}).Now().Add(2 * time.Second)
 	for {
-		_, n := h.presence()
+		_, n, _ := h.presence()
 		if n == 1 || (clock.Real{}).Now().After(deadline) {
 			break
 		}
@@ -190,7 +190,7 @@ func TestSessionRevocationClosesSocket(t *testing.T) {
 
 	// Presence drops back to zero.
 	time.Sleep(50 * time.Millisecond)
-	if _, n := h.presence(); n != 0 {
+	if _, n, _ := h.presence(); n != 0 {
 		t.Fatalf("presence = %d after revocation, want 0", n)
 	}
 }

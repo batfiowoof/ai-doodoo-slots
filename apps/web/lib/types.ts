@@ -6,6 +6,9 @@ export type Me = components["schemas"]["Me"];
 export type PublicProfile = components["schemas"]["PublicProfile"];
 export type AdminUserRow = components["schemas"]["AdminUserRow"];
 export type SessionInfo = components["schemas"]["SessionInfo"];
+export type ChatMessage = components["schemas"]["ChatMessage"];
+export type LeaderboardEntry = components["schemas"]["LeaderboardEntry"];
+export type Leaderboard = components["schemas"]["Leaderboard"];
 
 /** Live profile change broadcast on the room/lobby socket. */
 export interface ProfileUpdatedEvent {

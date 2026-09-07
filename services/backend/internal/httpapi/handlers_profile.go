@@ -353,6 +353,10 @@ func (s *Server) handleUserPublicProfile(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "internal", "internal server error")
 		return
 	}
+	stats, ok := s.playerStats(w, r, id)
+	if !ok {
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":            row.ID,
 		"displayName":   row.DisplayName,
@@ -360,6 +364,7 @@ func (s *Server) handleUserPublicProfile(w http.ResponseWriter, r *http.Request)
 		"avatarVersion": row.AvatarVersion,
 		"role":          row.Role,
 		"createdAt":     row.CreatedAt,
+		"stats":         stats,
 	})
 }
 

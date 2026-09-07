@@ -115,40 +115,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/oauth/{provider}/start": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Begin OAuth flow */
-        get: operations["oauthStart"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/oauth/{provider}/callback": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** OAuth callback */
-        get: operations["oauthCallback"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -161,6 +127,102 @@ export interface paths {
          * @description Resolves a Keycloak Bearer token (Authorization header) first, then the guest session cookie.
          */
         get: operations["getMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Edit the caller's profile (display name, avatar preset)
+         * @description Display names are 3-20 chars (letters, digits, spaces, _ and -), case-insensitively unique, and cooldown-limited to one change per 24h (the first rename is exempt). Guests may rename too; the Keycloak write-back only applies to registered accounts.
+         */
+        patch: operations["updateMe"];
+        trace?: never;
+    };
+    "/api/v1/me/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Upload an avatar (registered players only)
+         * @description Body is raw PNG or JPEG bytes (max 1MB). The server center-crops, downscales to 64x64 pixels, and stores the result; subsequent renders use the bumped avatarVersion to cache-bust.
+         */
+        put: operations["uploadAvatar"];
+        post?: never;
+        /** Clear the caller's avatar (preset and upload) */
+        delete: operations["deleteAvatar"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/self-exclude": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Self-exclude from betting */
+        post: operations["selfExclude"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/deposit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Claim the hourly play-money top-up */
+        post: operations["deposit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{id}/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Serve a player's uploaded avatar image
+         * @description 404 unless the player uploaded an image and has no preset selected. Responses are immutable; the version query cache-busts.
+         */
+        get: operations["getUserAvatar"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{id}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Public profile slice for a player */
+        get: operations["getUserProfile"];
         put?: never;
         post?: never;
         delete?: never;
@@ -422,6 +484,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Newest chat lines for dock mounting */
+        get: operations["getChatHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leaderboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Top-20 aggregate plus the caller's own rank */
+        get: operations["getLeaderboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List or search users (moderator+) */
+        get: operations["adminListUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/users/{id}/ban": {
         parameters: {
             query?: never;
@@ -500,10 +613,12 @@ export interface components {
             status: "active" | "banned" | "self_excluded";
             /** Format: date-time */
             createdAt: string;
-            /** Curated avatar sprite key; empty = none (an upload may exist). */
+            /** @description Curated avatar sprite key; empty = none (an upload may exist) */
             avatarPreset?: string;
-            /** Bumped on every avatar change; > 0 with empty preset = upload. */
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Bumped on every avatar change; > 0 with empty preset = upload
+             */
             avatarVersion?: number;
         };
         Me: {
@@ -513,7 +628,7 @@ export interface components {
         };
         ProfileUpdateRequest: {
             displayName?: string;
-            /** Preset sprite key; empty string clears the preset. */
+            /** @description Preset sprite key; empty string clears the preset */
             avatarPreset?: string;
         };
         AvatarUploadResponse: {
@@ -524,11 +639,50 @@ export interface components {
             /** Format: int64 */
             id: number;
             displayName: string;
+            avatarPreset: string;
+            /** Format: int64 */
+            avatarVersion: number;
+            role: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ChatMessage: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            userId: number;
+            displayName: string;
+            avatarPreset: string;
+            /** Format: int64 */
+            avatarVersion: number;
+            role: string;
+            /** @enum {string} */
+            kind: "chat" | "system";
+            body: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ChatHistory: {
+            messages: components["schemas"]["ChatMessage"][];
+        };
+        LeaderboardEntry: {
+            rank: number;
+            /** Format: int64 */
+            userId: number;
+            displayName: string;
             avatarPreset?: string;
             /** Format: int64 */
             avatarVersion?: number;
-            role?: string;
-            createdAt?: string;
+            /** Format: int64 */
+            value: number;
+        };
+        Leaderboard: {
+            /** @enum {string} */
+            metric: "biggest_win" | "net_profit" | "wagered";
+            /** @enum {string} */
+            window: "daily" | "weekly" | "all";
+            entries: components["schemas"]["LeaderboardEntry"][];
+            me?: components["schemas"]["LeaderboardEntry"] | null;
         };
         AdminUserRow: {
             /** Format: int64 */
@@ -538,7 +692,9 @@ export interface components {
             email?: string | null;
             emailVerified?: boolean;
             role: string;
+            /** @enum {string} */
             status: "active" | "banned" | "self_excluded";
+            /** Format: date-time */
             statusUntil?: string | null;
             /** Format: date-time */
             createdAt: string;
@@ -883,46 +1039,6 @@ export interface operations {
             404: components["responses"]["Error"];
         };
     };
-    oauthStart: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                provider: "discord" | "google";
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Redirect to provider */
-            302: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    oauthCallback: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                provider: "discord" | "google";
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Redirect into the app with a session set */
-            302: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     getMe: {
         parameters: {
             query?: never;
@@ -942,6 +1058,211 @@ export interface operations {
                 };
             };
             401: components["responses"]["Error"];
+        };
+    };
+    updateMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated identity and balance */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            /** @description Rename cooldown active */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Display name already taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    uploadAvatar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "image/png": string;
+                "image/jpeg": string;
+            };
+        };
+        responses: {
+            /** @description New avatar version */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AvatarUploadResponse"];
+                };
+            };
+            401: components["responses"]["Error"];
+            /** @description Guests cannot upload */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            415: components["responses"]["Error"];
+        };
+    };
+    deleteAvatar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cleared */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    selfExclude: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    days?: number | null;
+                };
+            };
+        };
+        responses: {
+            /** @description New status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status?: string;
+                        /** Format: date-time */
+                        statusUntil?: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    deposit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deposit result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int64 */
+                        balanceCredits?: number;
+                        claimed?: boolean;
+                        /** Format: int64 */
+                        amountCredits?: number;
+                    };
+                };
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    getUserAvatar: {
+        parameters: {
+            query?: {
+                v?: number;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Avatar image */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    getUserProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicProfile"];
+                };
+            };
+            404: components["responses"]["Error"];
         };
     };
     listGames: {
@@ -1269,6 +1590,80 @@ export interface operations {
                 };
             };
             404: components["responses"]["Error"];
+        };
+    };
+    getChatHistory: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Chat history, oldest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatHistory"];
+                };
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    getLeaderboard: {
+        parameters: {
+            query?: {
+                metric?: "biggest_win" | "net_profit" | "wagered";
+                window?: "daily" | "weekly" | "all";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Leaderboard entries (top 20) and the caller's rank when present */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Leaderboard"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+        };
+    };
+    adminListUsers: {
+        parameters: {
+            query?: {
+                /** @description Substring match on display name or email; empty lists newest first */
+                query?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description User rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserList"];
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
         };
     };
     adminBan: {

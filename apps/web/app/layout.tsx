@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Silkscreen, VT323 } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+import SocialDock from "@/components/SocialDock";
 
 const silkscreen = Silkscreen({
   variable: "--font-silkscreen",
@@ -25,7 +26,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${silkscreen.variable} ${vt323.variable}`}>
       <body>
-        <Providers>{children}</Providers>
+        <Providers>
+          {children}
+          {/* Global social chrome: chat, emotes, leaderboard, presence. */}
+          <SocialDock />
+        </Providers>
       </body>
     </html>
   );

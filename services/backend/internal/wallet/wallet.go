@@ -32,6 +32,10 @@ const (
 	KindPayout      = "payout"
 	KindAdminAdjust = "admin_adjust"
 	KindRefund      = "refund"
+	KindTip         = "tip"          // player-to-player debit
+	KindTipReceived = "tip_received" // the receiving leg
+	KindRain        = "rain"         // rainmaker's distributed debit
+	KindRainShare   = "rain_share"   // each recipient's credit
 )
 
 var (

@@ -204,6 +204,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/themes", s.handleListThemes)
 	mux.HandleFunc("GET /api/v1/lobby", s.handleLobby)
 	mux.HandleFunc("GET /api/v1/rooms/{slug}", s.handleRoomDetail)
+	mux.HandleFunc("GET /api/v1/chat/messages", s.handleChatHistory)
+	mux.HandleFunc("GET /api/v1/leaderboard", s.handleLeaderboard)
 	if s.hub != nil {
 		mux.HandleFunc("GET /api/v1/ws", s.hub.ServeHTTP)
 	}

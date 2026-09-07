@@ -45,12 +45,13 @@ type RoomSource interface {
 
 // Hub owns connections and room subscriptions.
 type Hub struct {
-	auth Authenticator
-	src  RoomSource
-	bus  bus.Bus
-	clk  clock.Clock
-	log  *slog.Logger
-	bets BetHandler
+	auth   Authenticator
+	src    RoomSource
+	bus    bus.Bus
+	clk    clock.Clock
+	log    *slog.Logger
+	bets   BetHandler
+	social SocialHandler
 
 	roomInfo     func() map[string]map[string]any
 	roomHandlers map[string]RoomHandler
@@ -70,6 +71,21 @@ func (h *Hub) SetBetHandler(b BetHandler) {
 	h.betsMu.Lock()
 	h.bets = b
 	h.betsMu.Unlock()
+}
+
+// SetSocialHandler attaches the chat/emote/tip path (wired by the
+// gameserver; the stateless api never has one and social messages answer
+// with an unavailable error).
+func (h *Hub) SetSocialHandler(s SocialHandler) {
+	h.betsMu.Lock()
+	h.social = s
+	h.betsMu.Unlock()
+}
+
+func (h *Hub) socialHandler() SocialHandler {
+	h.betsMu.RLock()
+	defer h.betsMu.RUnlock()
+	return h.social
 }
 
 // SetRoomHandler attaches the game-action path for one room (wired after
@@ -135,6 +151,7 @@ func (h *Hub) Run(ctx context.Context) {
 	sessionSub := h.bus.Subscribe(TopicSession)
 	userSub := h.bus.Subscribe(TopicUser)
 	roomSub := h.bus.Subscribe(TopicRooms)
+	winsSub := h.bus.Subscribe(TopicWins)
 	lobbyTick := time.NewTicker(1 * time.Second)
 	defer lobbyTick.Stop()
 	for {
@@ -149,10 +166,31 @@ func (h *Hub) Run(ctx context.Context) {
 			// Round-loop events fan out to the room's subscribers only;
 			// the lobby never receives round ticks.
 			h.BroadcastRoom(ev.Room, Message{Type: ev.Type, Payload: ev.Payload})
+		case ev := <-winsSub.Chan():
+			// Big wins are lobby-wide news: banner everyone and persist the
+			// system chat line. Requires the social handler (gameserver).
+			if s := h.socialHandler(); s != nil {
+				win, chat, ok := s.AnnounceWin(ev.Payload)
+				if ok {
+					h.broadcastMapAll("big_win", win)
+					if chat != nil {
+						h.broadcastMapAll("chat_message", chat)
+					}
+				}
+			}
 		case <-lobbyTick.C:
 			h.broadcastLobbySummary()
 		}
 	}
+}
+
+// broadcastMapAll marshals and fans a payload out to every connection.
+func (h *Hub) broadcastMapAll(msgType string, payload map[string]any) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	h.BroadcastAll(Message{Type: msgType, Payload: raw})
 }
 
 // ServeHTTP upgrades and registers a connection. Unauthenticated upgrades
@@ -270,8 +308,10 @@ func (h *Hub) handleUserEvent(ev bus.Event) {
 }
 
 // presence returns per-room connection counts with user-ID deduplication
-// (two tabs are one player) plus the lobby count.
-func (h *Hub) presence() (map[string]int, int) {
+// (two tabs are one player) plus the lobby count and the deduplicated
+// roster of online users (room = the slug they are joined to, "" when
+// lobby-only).
+func (h *Hub) presence() (map[string]int, int, []map[string]any) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	roomCounts := make(map[string]int, len(h.rooms))
@@ -286,20 +326,57 @@ func (h *Hub) presence() (map[string]int, int) {
 	}
 	seen := make(map[int64]bool, len(h.clients))
 	lobby := 0
+	roster := make([]map[string]any, 0, len(h.clients))
 	for c := range h.clients {
-		if !seen[c.id.UserID] {
-			seen[c.id.UserID] = true
-			lobby++
+		if seen[c.id.UserID] {
+			continue
 		}
+		seen[c.id.UserID] = true
+		lobby++
+		room := ""
+		for slug := range c.rooms {
+			if slug != LobbyTopicName {
+				room = slug
+				break
+			}
+		}
+		roster = append(roster, map[string]any{
+			"userId":        c.id.UserID,
+			"displayName":   c.id.DisplayName,
+			"avatarPreset":  c.id.AvatarPreset,
+			"avatarVersion": c.id.AvatarVersion,
+			"role":          c.id.Role,
+			"room":          room,
+		})
 	}
-	return roomCounts, lobby
+	return roomCounts, lobby, roster
 }
 
 // Presence is the exported view for the lobby HTTP surface.
-func (h *Hub) Presence() (map[string]int, int) { return h.presence() }
+func (h *Hub) Presence() (map[string]int, int) {
+	counts, lobby, _ := h.presence()
+	return counts, lobby
+}
+
+// OnlineUserIDs lists the deduplicated active users currently connected,
+// excluding excludeID — the rain recipient set.
+func (h *Hub) OnlineUserIDs(exclude int64) []int64 {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	seen := make(map[int64]bool, len(h.clients))
+	out := make([]int64, 0, len(h.clients))
+	for c := range h.clients {
+		if c.id.Status != "active" || c.id.UserID == exclude || seen[c.id.UserID] {
+			continue
+		}
+		seen[c.id.UserID] = true
+		out = append(out, c.id.UserID)
+	}
+	return out
+}
 
 func (h *Hub) broadcastLobbySummary() {
-	rooms, players := h.presence()
+	rooms, players, roster := h.presence()
 	h.betsMu.RLock()
 	catalog := h.roomInfo
 	h.betsMu.RUnlock()
@@ -321,6 +398,7 @@ func (h *Hub) broadcastLobbySummary() {
 	payload, err := json.Marshal(map[string]any{
 		"rooms":            detail,
 		"connectedPlayers": players,
+		"roster":           roster,
 	})
 	if err != nil {
 		return
@@ -335,6 +413,27 @@ func (h *Hub) broadcastLobbySummary() {
 	h.mu.RUnlock()
 	for _, c := range targets {
 		c.sendJSON(Message{Type: "lobby_summary", Payload: payload})
+	}
+}
+
+// sendToUser delivers a message to every connection of one user (mutes,
+// direct notices).
+func (h *Hub) sendToUser(userID int64, m Message) {
+	payload, _ := json.Marshal(m)
+	h.mu.RLock()
+	var targets []*Client
+	for c := range h.clients {
+		if c.id.UserID == userID {
+			targets = append(targets, c)
+		}
+	}
+	h.mu.RUnlock()
+	for _, c := range targets {
+		select {
+		case c.send <- payload:
+		default:
+			c.close()
+		}
 	}
 }
 

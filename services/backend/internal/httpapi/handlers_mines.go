@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/ai-doodoo-slots/services/backend/internal/bigwin"
 	"github.com/ai-doodoo-slots/services/backend/internal/mines"
 )
 
@@ -105,6 +106,10 @@ func (s *Server) handleMinesCashOut(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := s.mines.CashOut(r.Context(), su.UserID, roundID, body.IdempotencyKey)
+	if err == nil && !res.Replay && res.View.PayoutCredits > 0 && res.View.BetCredits > 0 {
+		bigwin.Notify(r.Context(), s.pool, su.UserID, "mines", res.View.BetCredits,
+			res.View.PayoutCredits, res.View.Multiplier)
+	}
 	s.writeMinesResult(w, r, err, res)
 }
 

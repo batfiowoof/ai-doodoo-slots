@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ai-doodoo-slots/services/backend/internal/bigwin"
 	"github.com/ai-doodoo-slots/services/backend/internal/play"
 	"github.com/ai-doodoo-slots/services/backend/internal/store"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -71,6 +72,15 @@ func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("play", "err", err, "user_id", su.UserID, "game", r.PathValue("id"))
 		writeError(w, http.StatusInternalServerError, "internal", "internal server error")
 		return
+	}
+
+	// Lobby-wide news when a settled personal bet clears the multiplier
+	// threshold (replays never re-announce). Instant games settle in the api
+	// process, which owns no sockets: announce over pg_notify so the
+	// gameserver's relay fans it out.
+	if !res.Replay && body.BetCredits > 0 {
+		bigwin.Notify(r.Context(), s.pool, su.UserID, res.GameID, body.BetCredits, res.PayoutCredits,
+			float64(res.PayoutCredits)/float64(body.BetCredits))
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{

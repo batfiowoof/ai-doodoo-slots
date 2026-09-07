@@ -22,6 +22,7 @@ import (
 	"github.com/ai-doodoo-slots/services/backend/internal/game/roulette"
 	"github.com/ai-doodoo-slots/services/backend/internal/httpapi"
 	"github.com/ai-doodoo-slots/services/backend/internal/round"
+	"github.com/ai-doodoo-slots/services/backend/internal/social"
 	"github.com/ai-doodoo-slots/services/backend/internal/store"
 	"github.com/ai-doodoo-slots/services/backend/internal/table"
 	"github.com/ai-doodoo-slots/services/backend/internal/ws"
@@ -92,6 +93,10 @@ func main() {
 	// Profile changes are published by the api node over Postgres
 	// NOTIFY/LISTEN; relay them onto our sockets.
 	go ws.RelayProfileNotifications(ctx, pool, api.Hub(), logger)
+
+	// Chat, emotes, tips and rain ride the hub's social path (gameserver
+	// only — the stateless api has no social handler wired).
+	api.Hub().SetSocialHandler(social.New(pool, logger))
 
 	// One runner per active room; each runner is the single writer for its
 	// room's rounds. Round games (crash) use the phase-loop runner; table

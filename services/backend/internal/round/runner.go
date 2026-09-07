@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ai-doodoo-slots/services/backend/internal/bigwin"
 	"github.com/ai-doodoo-slots/services/backend/internal/bus"
 	"github.com/ai-doodoo-slots/services/backend/internal/clock"
 	"github.com/ai-doodoo-slots/services/backend/internal/fair"
@@ -259,6 +260,17 @@ func (r *Runner) runRound(ctx context.Context) error {
 					if err := r.persist.SettleRound(ctx, roundID, settled); err != nil {
 						r.logger.Error("settle round", "room", r.room, "round", roundID, "err", err)
 						return err
+					}
+					// Lobby-wide big-win news: a settlement multiplier at or
+					// above the threshold qualifies (crash cashouts, roulette
+					// spots). Bet size is derived from payout ÷ multiplier.
+					for _, s := range settled {
+						if s.MultiplierHundredths <= 0 || s.PayoutCredits <= 0 {
+							continue
+						}
+						mult := float64(s.MultiplierHundredths) / 100
+						bigwin.Publish(r.bus, s.UserID, r.game.ID(),
+							int64(float64(s.PayoutCredits)/mult), s.PayoutCredits, mult)
 					}
 					// History + per-player payouts for the clients. The
 					// history projection is game-specific (crash records the

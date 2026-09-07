@@ -351,6 +351,45 @@ class SoundManager {
     this.tone(523, 0.14, { type: "sine", gain: 0.05, delay: 0.17 });
   }
 
+  // ----- social dock sounds -----
+
+  /** A chat line lands: soft single blip, quiet enough for constant traffic. */
+  chatPop(): void {
+    this.tone(620, 0.05, { type: "square", gain: 0.028 });
+  }
+
+  /** An emote launches: quick upward chirp. */
+  emotePop(): void {
+    this.tone(520, 0.07, { type: "square", gain: 0.04, slideTo: 1040 });
+    this.hit(0.03, { gain: 0.05, freq: 3400, delay: 0.02 });
+  }
+
+  /** Credits land in your wallet: tiny sparkle arpeggio. */
+  tipReceived(): void {
+    this.tone(1046, 0.07, { type: "triangle", gain: 0.05 });
+    this.tone(1568, 0.1, { type: "triangle", gain: 0.05, delay: 0.08 });
+  }
+
+  /** Rain! A tumbling cascade of short noise ticks. */
+  rainStorm(): void {
+    for (let i = 0; i < 14; i++) {
+      this.hit(0.05, {
+        gain: 0.07,
+        freq: 900 + Math.random() * 1800,
+        q: 2,
+        delay: i * 0.09 + Math.random() * 0.05,
+      });
+    }
+    this.tone(392, 0.5, { type: "triangle", gain: 0.05, delay: 0.1, slideTo: 784 });
+  }
+
+  /** The leaderboard unfolds: a three-note brass-ish fanfare. */
+  leaderboardOpen(): void {
+    this.tone(523, 0.09, { type: "square", gain: 0.045 });
+    this.tone(659, 0.09, { type: "square", gain: 0.045, delay: 0.1 });
+    this.tone(784, 0.16, { type: "square", gain: 0.055, delay: 0.2 });
+  }
+
   // ----- crash-room space sounds -----
 
   private engine: {

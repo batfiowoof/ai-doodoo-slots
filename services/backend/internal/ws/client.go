@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,7 +27,16 @@ type Client struct {
 	closed      bool
 	tearingDown bool
 	inbound     []time.Time // inbound message timestamps for the rate cap
+	lastChat    time.Time   // social cooldowns (per connection)
+	lastEmote   time.Time
 }
+
+// social cooldown floors. The 20/s inbound cap is the backstop; these keep
+// the chat readable without client-side cooperation.
+const (
+	chatCooldown  = 500 * time.Millisecond
+	emoteCooldown = 400 * time.Millisecond
+)
 
 // sendJSON queues a message; drops silently (and schedules teardown) when
 // the connection is closed or the buffer is full.
@@ -104,6 +114,12 @@ var inboundTypes = map[string]bool{
 	"place_bet":         true,
 	"cash_out":          true,
 	"game_action":       true,
+	"send_chat":         true,
+	"send_emote":        true,
+	"send_tip":          true,
+	"make_it_rain":      true,
+	"chat_delete":       true,
+	"chat_mute":         true,
 }
 
 func (c *Client) readPump() {
@@ -237,7 +253,246 @@ func (c *Client) handle(m Message) {
 
 	case "game_action":
 		c.handleGameAction(m.Payload)
+
+	case "send_chat":
+		c.handleSocialChat(m.Payload)
+
+	case "send_emote":
+		c.handleSocialEmote(m.Payload)
+
+	case "send_tip":
+		c.handleSocialTip(m.Payload)
+
+	case "make_it_rain":
+		c.handleSocialRain(m.Payload)
+
+	case "chat_delete":
+		c.handleSocialDelete(m.Payload)
+
+	case "chat_mute":
+		c.handleSocialMute(m.Payload)
 	}
+}
+
+// socialError answers a social message with the shared error envelope.
+func (c *Client) socialError(code string) {
+	raw, _ := json.Marshal(map[string]any{"code": code})
+	c.sendJSON(Message{Type: "error", Payload: raw})
+}
+
+// socialGate is the shared pre-flight for every social message: an active
+// account, a wired handler, and a per-connection cooldown floor.
+func (c *Client) socialGate(cooldown time.Duration, last *time.Time) (SocialHandler, bool) {
+	if c.id.Status != "active" {
+		c.socialError("status_forbids_social")
+		return nil, false
+	}
+	h := c.hub.socialHandler()
+	if h == nil {
+		c.socialError("social_unavailable")
+		return nil, false
+	}
+	now := c.hub.clk.Now()
+	c.mu.Lock()
+	ready := now.Sub(*last) >= cooldown
+	if ready {
+		*last = now
+	}
+	c.mu.Unlock()
+	if !ready {
+		c.socialError("social_cooldown")
+		return nil, false
+	}
+	return h, true
+}
+
+// socialFail maps a handler error (coded when the handler says so) onto the
+// error envelope.
+func (c *Client) socialFail(err error) {
+	code := "social_rejected"
+	if ce, ok := err.(interface{ Code() string }); ok {
+		code = ce.Code()
+	}
+	c.socialError(code)
+}
+
+// handleSocialChat validates, persists (handler), and broadcasts one line.
+func (c *Client) handleSocialChat(payload json.RawMessage) {
+	var p struct {
+		Body string `json:"body"`
+	}
+	if json.Unmarshal(payload, &p) != nil {
+		c.socialError("bad_request")
+		return
+	}
+	body := strings.TrimSpace(p.Body)
+	if len(body) == 0 || len(body) > 256 {
+		c.socialError("bad_request")
+		return
+	}
+	h, ok := c.socialGate(chatCooldown, &c.lastChat)
+	if !ok {
+		return
+	}
+	msg, err := h.SendChat(c.id, body)
+	if err != nil {
+		c.socialFail(err)
+		return
+	}
+	c.hub.broadcastMapAll("chat_message", msg)
+}
+
+// handleSocialEmote validates the id shape and broadcasts an ephemeral
+// reaction. Clients silently ignore ids they have no art for.
+func (c *Client) handleSocialEmote(payload json.RawMessage) {
+	var p struct {
+		EmoteID string `json:"emoteId"`
+	}
+	if json.Unmarshal(payload, &p) != nil {
+		c.socialError("bad_request")
+		return
+	}
+	if !validEmoteID(p.EmoteID) {
+		c.socialError("bad_request")
+		return
+	}
+	h, ok := c.socialGate(emoteCooldown, &c.lastEmote)
+	if !ok {
+		return
+	}
+	msg, err := h.SendEmote(c.id, p.EmoteID)
+	if err != nil {
+		c.socialFail(err)
+		return
+	}
+	c.hub.broadcastMapAll("emote", msg)
+}
+
+// handleSocialTip moves credits to another player and announces it.
+func (c *Client) handleSocialTip(payload json.RawMessage) {
+	var p struct {
+		ToUserID int64 `json:"toUserId"`
+		Credits  int64 `json:"credits"`
+	}
+	if json.Unmarshal(payload, &p) != nil || p.ToUserID == 0 || p.Credits <= 0 {
+		c.socialError("bad_request")
+		return
+	}
+	h, ok := c.socialGate(chatCooldown, &c.lastChat)
+	if !ok {
+		return
+	}
+	tip, chat, err := h.SendTip(c.id, p.ToUserID, p.Credits)
+	if err != nil {
+		c.socialFail(err)
+		return
+	}
+	c.hub.broadcastMapAll("tip", tip)
+	if chat != nil {
+		c.hub.broadcastMapAll("chat_message", chat)
+	}
+}
+
+// handleSocialRain splits the pot across everyone currently online.
+func (c *Client) handleSocialRain(payload json.RawMessage) {
+	var p struct {
+		Credits int64 `json:"credits"`
+	}
+	if json.Unmarshal(payload, &p) != nil || p.Credits <= 0 {
+		c.socialError("bad_request")
+		return
+	}
+	h, ok := c.socialGate(chatCooldown, &c.lastChat)
+	if !ok {
+		return
+	}
+	recipients := c.hub.OnlineUserIDs(c.id.UserID)
+	if len(recipients) == 0 {
+		c.socialError("no_recipients")
+		return
+	}
+	rain, chat, err := h.Rain(c.id, p.Credits, recipients)
+	if err != nil {
+		c.socialFail(err)
+		return
+	}
+	c.hub.broadcastMapAll("rain", rain)
+	if chat != nil {
+		c.hub.broadcastMapAll("chat_message", chat)
+	}
+}
+
+// handleSocialDelete soft-deletes one chat line (staff only).
+func (c *Client) handleSocialDelete(payload json.RawMessage) {
+	var p struct {
+		MessageID int64 `json:"messageId"`
+	}
+	if json.Unmarshal(payload, &p) != nil || p.MessageID <= 0 {
+		c.socialError("bad_request")
+		return
+	}
+	h := c.hub.socialHandler()
+	if h == nil {
+		c.socialError("social_unavailable")
+		return
+	}
+	if !c.id.IsStaff() {
+		c.socialError("forbidden")
+		return
+	}
+	msg, err := h.DeleteChatMessage(c.id, p.MessageID)
+	if err != nil {
+		c.socialFail(err)
+		return
+	}
+	if msg != nil {
+		c.hub.broadcastMapAll("chat_deleted", msg)
+	}
+}
+
+// handleSocialMute disables chat for a user (staff only).
+func (c *Client) handleSocialMute(payload json.RawMessage) {
+	var p struct {
+		UserID  int64  `json:"userId"`
+		Minutes int64  `json:"minutes"`
+		Reason  string `json:"reason"`
+	}
+	if json.Unmarshal(payload, &p) != nil || p.UserID <= 0 || p.Minutes <= 0 || p.Minutes > 60*24*30 {
+		c.socialError("bad_request")
+		return
+	}
+	h := c.hub.socialHandler()
+	if h == nil {
+		c.socialError("social_unavailable")
+		return
+	}
+	if !c.id.IsStaff() {
+		c.socialError("forbidden")
+		return
+	}
+	if err := h.MuteUser(c.id, p.UserID, p.Minutes, p.Reason); err != nil {
+		c.socialFail(err)
+		return
+	}
+	// The offender learns about it directly; staff gets an ack-free silence.
+	c.hub.sendToUser(p.UserID, Message{
+		Type: "error",
+		Payload: json.RawMessage(`{"code":"muted","message":"you are muted"}`),
+	})
+}
+
+// validEmoteID guards the ephemeral reaction id shape; the id set itself is
+// a frontend registry concern and may grow without a server change.
+func validEmoteID(id string) bool {
+	if len(id) == 0 || len(id) > 32 {
+		return false
+	}
+	for _, r := range id {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // handleGameAction routes a room-scoped game action (poker buy-in, fold,

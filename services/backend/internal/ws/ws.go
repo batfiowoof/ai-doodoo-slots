@@ -61,10 +61,29 @@ type RoomHandler interface {
 	HandleGameAction(id Identity, payload json.RawMessage) (map[string]any, error)
 }
 
-// LobbyTopic and session/user/room topics are bus topics the hub listens to.
+// SocialHandler is the authorized path for chat, emotes, tips and rain.
+// Methods re-check status, mutes and cooldown-sensitive state server-side
+// and return the broadcast payload(s); the socket layer persists nothing.
+// A method's second map (chat/tip/rain companions) is the matching system
+// chat line so announcements replay from history.
+type SocialHandler interface {
+	SendChat(id Identity, body string) (map[string]any, error)
+	SendEmote(id Identity, emoteID string) (map[string]any, error)
+	SendTip(id Identity, toUserID, credits int64) (tip map[string]any, chat map[string]any, err error)
+	Rain(id Identity, totalCredits int64, recipients []int64) (rain map[string]any, chat map[string]any, err error)
+	DeleteChatMessage(id Identity, messageID int64) (map[string]any, error)
+	MuteUser(id Identity, userID int64, minutes int64, reason string) error
+	// AnnounceWin turns a raw wins-bus event into the big_win broadcast and
+	// its persisted system chat line. Returns ok=false when the event shape
+	// is unknown.
+	AnnounceWin(ev json.RawMessage) (win map[string]any, chat map[string]any, ok bool)
+}
+
+// LobbyTopic and session/user/room/wins topics are bus topics the hub listens to.
 const (
 	TopicLobby   = "lobby"
 	TopicSession = "session"
 	TopicUser    = "user"
 	TopicRooms   = "rooms" // round-loop events; Room names the target room
+	TopicWins    = "wins"  // big-win announcements from settlement paths
 )
