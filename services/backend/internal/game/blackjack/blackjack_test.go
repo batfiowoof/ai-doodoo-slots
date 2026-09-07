@@ -17,8 +17,8 @@ func testStream(t *testing.T, nonce int64) *fair.Stream {
 }
 
 func TestValidateBet(t *testing.T) {
-	e := New([]int64{10, 25, 50})
-	for _, ok := range []int64{10, 25, 50} {
+	e := New(10, 50)
+	for _, ok := range []int64{10, 25, 50, 37} {
 		if err := e.ValidateBet(ok); err != nil {
 			t.Errorf("ValidateBet(%d): %v", ok, err)
 		}
@@ -35,11 +35,11 @@ func TestDealDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateSeed: %v", err)
 	}
-	a, err := New([]int64{10}).Deal(fair.NewPersonalStream(seed, "c", 1), 10)
+	a, err := New(1, 100).Deal(fair.NewPersonalStream(seed, "c", 1), 10)
 	if err != nil {
 		t.Fatalf("Deal: %v", err)
 	}
-	b, err := New([]int64{10}).Deal(fair.NewPersonalStream(seed, "c", 1), 10)
+	b, err := New(1, 100).Deal(fair.NewPersonalStream(seed, "c", 1), 10)
 	if err != nil {
 		t.Fatalf("Deal: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestDealDeterministic(t *testing.T) {
 }
 
 func TestHandLifecycle(t *testing.T) {
-	e := New([]int64{10})
+	e := New(1, 100)
 	st, err := e.Deal(testStream(t, 1), 10)
 	if err != nil {
 		t.Fatalf("Deal: %v", err)
@@ -108,7 +108,7 @@ func TestHandLifecycle(t *testing.T) {
 }
 
 func TestDoubleRules(t *testing.T) {
-	e := New([]int64{10})
+	e := New(1, 100)
 	// Find a deal that stays active, double it, and verify the stake
 	// doubled and exactly one card was added.
 	for nonce := int64(0); nonce < 200; nonce++ {
@@ -144,7 +144,7 @@ func TestDoubleRules(t *testing.T) {
 }
 
 func TestDoubleOnlyOnTwoCards(t *testing.T) {
-	e := New([]int64{10})
+	e := New(1, 100)
 	for nonce := int64(0); nonce < 200; nonce++ {
 		st, err := e.Deal(testStream(t, nonce), 10)
 		if err != nil {
@@ -179,7 +179,7 @@ func TestNaturalPayout(t *testing.T) {
 }
 
 func TestDealerStandsOnAll17s(t *testing.T) {
-	e := New([]int64{10})
+	e := New(1, 100)
 	for nonce := int64(0); nonce < 500; nonce++ {
 		st, err := e.Deal(testStream(t, nonce), 10)
 		if err != nil {
@@ -283,7 +283,7 @@ func TestSimulationRTP(t *testing.T) {
 	if testing.Short() {
 		t.Skip("long simulation")
 	}
-	e := New([]int64{10})
+	e := New(1, 100)
 	seed, err := fair.GenerateSeed()
 	if err != nil {
 		t.Fatalf("GenerateSeed: %v", err)

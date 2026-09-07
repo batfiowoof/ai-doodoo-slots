@@ -56,7 +56,10 @@ func NewMemoryBus() *MemoryBus {
 	return &MemoryBus{subs: make(map[int]*memSub)}
 }
 
-const subBuffer = 128
+// The hub consumes every room's round events through one subscription; the
+// buffer must absorb a burst of 50-100ms ticks across all rooms without
+// dropping (drops are silent and show up as missed client ticks).
+const subBuffer = 1024
 
 func (b *MemoryBus) Subscribe(topics ...string) *Subscription {
 	ch := make(chan Event, subBuffer)

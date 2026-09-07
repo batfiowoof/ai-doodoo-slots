@@ -36,7 +36,9 @@ type Config struct {
 	Symbols  []SymbolCfg
 	Lines    [][]int // row index per column; empty = scatter-pays mode
 	Icons    []string
-	BetSteps []int64
+	BetSteps []int64 // UI presets; any amount in [MinBet, MaxBet] is accepted
+	MinBet   int64
+	MaxBet   int64
 }
 
 // Game is a configured slot machine.
@@ -60,13 +62,14 @@ func (g *Game) DisplayName() string {
 }
 
 func (g *Game) ValidateBet(credits int64) error {
-	for _, step := range g.cfg.BetSteps {
-		if credits == step {
-			return nil
-		}
+	if credits < g.cfg.MinBet || credits > g.cfg.MaxBet {
+		return fmt.Errorf("bet must be between %d and %d credits", g.cfg.MinBet, g.cfg.MaxBet)
 	}
-	return fmt.Errorf("bet must be one of %v credits", g.cfg.BetSteps)
+	return nil
 }
+
+// BetLimits exposes the accepted stake range for the games listing.
+func (g *Game) BetLimits() (int64, int64) { return g.cfg.MinBet, g.cfg.MaxBet }
 
 // Paytable exposes display data; the client renders it and never computes
 // payouts from it.

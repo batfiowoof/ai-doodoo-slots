@@ -38,8 +38,8 @@ var (
 	ErrHandComplete = errors.New("hand is already complete")
 	// ErrInvalidAction covers illegal moves (double after a hit).
 	ErrInvalidAction = errors.New("action not allowed at this point")
-	// ErrBetStep means the stake is not one of the configured steps.
-	ErrBetStep = errors.New("bet must be one of the configured steps")
+	// ErrBetStep means the stake is outside the configured [min, max] range.
+	ErrBetStep = errors.New("bet out of range")
 )
 
 // State is the full authoritative hand state, persisted as JSON between
@@ -58,25 +58,28 @@ type State struct {
 
 // Engine implements the ruleset. It is stateless; all state lives in State.
 type Engine struct {
-	betSteps []int64
+	betSteps []int64 // UI presets for the listing; any amount in range plays
+	minBet   int64
+	maxBet   int64
 }
 
-// New returns an engine enforcing the given bet steps.
-func New(betSteps []int64) *Engine {
-	return &Engine{betSteps: betSteps}
+// New returns an engine accepting any stake in [min, max].
+func New(minBet, maxBet int64) *Engine {
+	return &Engine{betSteps: []int64{5, 10, 25, 50, 100}, minBet: minBet, maxBet: maxBet}
 }
 
-// BetSteps exposes the configured steps for the games listing.
+// BetSteps exposes the preset chips for the games listing.
 func (e *Engine) BetSteps() []int64 { return e.betSteps }
 
-// ValidateBet enforces the step table.
+// BetLimits exposes the accepted stake range for the games listing.
+func (e *Engine) BetLimits() (int64, int64) { return e.minBet, e.maxBet }
+
+// ValidateBet enforces the stake range.
 func (e *Engine) ValidateBet(credits int64) error {
-	for _, step := range e.betSteps {
-		if credits == step {
-			return nil
-		}
+	if credits < e.minBet || credits > e.maxBet {
+		return fmt.Errorf("%w: %d not in [%d, %d]", ErrBetStep, credits, e.minBet, e.maxBet)
 	}
-	return fmt.Errorf("%w: %d not in %v", ErrBetStep, credits, e.betSteps)
+	return nil
 }
 
 // TheoreticalRTP is the simulated basic-strategy return with this ruleset

@@ -366,6 +366,14 @@ select {
 }
 
 /* Pot total pops when chips slide in. */
+@keyframes betShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(7px); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(5px); }
+}
+
 @keyframes potPop {
   0% {
     transform: scale(1.35);

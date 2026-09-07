@@ -68,6 +68,8 @@ export interface GameInfo {
   theoreticalRtp: number;
   kind?: "instant" | "stateful";
   betSteps?: number[] | null;
+  minBet?: number;
+  maxBet?: number;
   paytable?: SlotsPaytable | null;
 }
 

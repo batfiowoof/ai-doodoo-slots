@@ -34,22 +34,26 @@ func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		BetCredits     int64  `json:"betCredits"`
-		ClientSeed     string `json:"clientSeed"`
-		IdempotencyKey string `json:"idempotencyKey"`
+		BetCredits     int64           `json:"betCredits"`
+		Params         json.RawMessage `json:"params"`
+		ClientSeed     string          `json:"clientSeed"`
+		IdempotencyKey string          `json:"idempotencyKey"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
 
-	res, err := s.play.Play(r.Context(), su.UserID, r.PathValue("id"), body.BetCredits, body.ClientSeed, body.IdempotencyKey)
+	res, err := s.play.Play(r.Context(), su.UserID, r.PathValue("id"), body.BetCredits, body.Params, body.ClientSeed, body.IdempotencyKey)
 	switch {
 	case errors.Is(err, play.ErrUnknownGame):
 		writeError(w, http.StatusNotFound, "unknown_game", "no such game")
 		return
 	case errors.Is(err, play.ErrInvalidBet):
 		writeError(w, http.StatusBadRequest, "invalid_bet", err.Error())
+		return
+	case errors.Is(err, play.ErrInvalidParams):
+		writeError(w, http.StatusBadRequest, "invalid_params", err.Error())
 		return
 	case errors.Is(err, play.ErrIdempotencyKeyInvalid):
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
@@ -95,6 +99,8 @@ func (s *Server) handleListGames(w http.ResponseWriter, r *http.Request) {
 			"theoreticalRtp": l.TheoreticalRTP,
 			"paytable":       l.Paytable,
 			"betSteps":       l.BetSteps,
+			"minBet":         l.MinBet,
+			"maxBet":         l.MaxBet,
 			"kind":           l.Kind,
 		})
 	}

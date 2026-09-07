@@ -30,6 +30,17 @@ type Game interface {
 	TheoreticalRTP() float64
 }
 
+// ParamGame is implemented by instant games that take player choices
+// (dice target, plinko risk). Params arrive as the raw JSON body field;
+// ValidateParams must fully gate PlayWithParams. The engine embeds the
+// accepted params in the outcome payload so every play stays verifiable
+// from its seed triple + recorded payload.
+type ParamGame interface {
+	Game
+	ValidateParams(raw json.RawMessage) error
+	PlayWithParams(s *fair.Stream, betCredits int64, params json.RawMessage) (Outcome, error)
+}
+
 // Registry maps game IDs to implementations.
 type Registry struct {
 	mu    sync.RWMutex
@@ -47,7 +58,16 @@ type Listing struct {
 	TheoreticalRTP float64 `json:"theoreticalRtp"`
 	Paytable       any     `json:"paytable,omitempty"`
 	BetSteps       []int64 `json:"betSteps,omitempty"`
+	MinBet         int64   `json:"minBet,omitempty"`
+	MaxBet         int64   `json:"maxBet,omitempty"`
 	Kind           string  `json:"kind"` // "instant" or "stateful"
+}
+
+// BetLimiter is implemented by engines that accept any amount inside a
+// [min, max] range (as opposed to fixed steps). The registry surfaces the
+// range in the listing so clients can clamp custom bet inputs.
+type BetLimiter interface {
+	BetLimits() (min, max int64)
 }
 
 // PhaseKind is one state of a shared round.
@@ -171,6 +191,9 @@ func (r *Registry) Listings() []Listing {
 					l.BetSteps = bs
 				}
 			}
+		}
+		if bl, ok := g.(BetLimiter); ok {
+			l.MinBet, l.MaxBet = bl.BetLimits()
 		}
 		out = append(out, l)
 	}

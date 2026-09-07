@@ -45,8 +45,17 @@ func TestValidateBetSteps(t *testing.T) {
 				t.Fatalf("%s: bet %d rejected: %v", g.cfg.ID, step, err)
 			}
 		}
-		if err := g.ValidateBet(7); err == nil {
-			t.Fatalf("%s: bet 7 accepted", g.cfg.ID)
+		// Any amount inside [MinBet, MaxBet] plays — steps are UI presets.
+		if err := g.ValidateBet(7); err != nil {
+			t.Fatalf("%s: bet 7 rejected: %v", g.cfg.ID, err)
+		}
+		if err := g.ValidateBet(g.cfg.MaxBet); err != nil {
+			t.Fatalf("%s: max bet %d rejected: %v", g.cfg.ID, g.cfg.MaxBet, err)
+		}
+		for _, bad := range []int64{0, -5, 10001, 1000000} {
+			if err := g.ValidateBet(bad); err == nil {
+				t.Fatalf("%s: bet %d accepted", g.cfg.ID, bad)
+			}
 		}
 	}
 }

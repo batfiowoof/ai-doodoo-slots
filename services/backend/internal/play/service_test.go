@@ -63,7 +63,7 @@ func TestIdempotentReplay(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	first, err := f.svc.Play(ctx, f.userID, "slots", 10, "gate-client-seed", f.key("gate-key-1"))
+	first, err := f.svc.Play(ctx, f.userID, "slots", 10, nil, "gate-client-seed", f.key("gate-key-1"))
 	if err != nil {
 		t.Fatalf("first play: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestIdempotentReplay(t *testing.T) {
 		t.Fatal("first play reported Replay")
 	}
 
-	second, err := f.svc.Play(ctx, f.userID, "slots", 10, "gate-client-seed", f.key("gate-key-1"))
+	second, err := f.svc.Play(ctx, f.userID, "slots", 10, nil, "gate-client-seed", f.key("gate-key-1"))
 	if err != nil {
 		t.Fatalf("replay: %v", err)
 	}
@@ -129,10 +129,10 @@ func TestIdempotencyConflictOnDifferentBet(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	if _, err := f.svc.Play(ctx, f.userID, "slots", 10, "cs", f.key("conflict-key")); err != nil {
+	if _, err := f.svc.Play(ctx, f.userID, "slots", 10, nil, "cs", f.key("conflict-key")); err != nil {
 		t.Fatalf("first play: %v", err)
 	}
-	if _, err := f.svc.Play(ctx, f.userID, "slots", 25, "cs", f.key("conflict-key")); !errors.Is(err, ErrIdempotencyConflict) {
+	if _, err := f.svc.Play(ctx, f.userID, "slots", 25, nil, "cs", f.key("conflict-key")); !errors.Is(err, ErrIdempotencyConflict) {
 		t.Fatalf("want ErrIdempotencyConflict, got %v", err)
 	}
 }
@@ -150,7 +150,7 @@ func TestInsufficientFundsRollsBackEverything(t *testing.T) {
 	}
 	_, _, beforeNonce, _ := f.fair.Current(ctx, f.userID)
 
-	if _, err := f.svc.Play(ctx, f.userID, "slots", 5, "cs", fmt.Sprintf("broke:%d", f.userID)); !errors.Is(err, ErrInsufficientFunds) {
+	if _, err := f.svc.Play(ctx, f.userID, "slots", 5, nil, "cs", fmt.Sprintf("broke:%d", f.userID)); !errors.Is(err, ErrInsufficientFunds) {
 		t.Fatalf("want ErrInsufficientFunds, got %v", err)
 	}
 
@@ -175,11 +175,11 @@ func TestSequentialNonces(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 
-	r1, err := f.svc.Play(ctx, f.userID, "slots", 5, "nonce-seed", f.key("n:1"))
+	r1, err := f.svc.Play(ctx, f.userID, "slots", 5, nil, "nonce-seed", f.key("n:1"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	r2, err := f.svc.Play(ctx, f.userID, "slots", 5, "nonce-seed", f.key("n:2"))
+	r2, err := f.svc.Play(ctx, f.userID, "slots", 5, nil, "nonce-seed", f.key("n:2"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestConcurrentPlaysSerialize(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, err := f.svc.Play(ctx, f.userID, "slots", 5, "concurrent", fmt.Sprintf("cc:%d:%d", f.userID, i))
+			_, err := f.svc.Play(ctx, f.userID, "slots", 5, nil, "concurrent", fmt.Sprintf("cc:%d:%d", f.userID, i))
 			errs <- err
 		}(i)
 	}
@@ -249,13 +249,13 @@ func TestConcurrentPlaysSerialize(t *testing.T) {
 func TestUnknownGameAndBadBet(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	if _, err := f.svc.Play(ctx, f.userID, "nope", 5, "cs", f.key("k1")); !errors.Is(err, ErrUnknownGame) {
+	if _, err := f.svc.Play(ctx, f.userID, "nope", 5, nil, "cs", f.key("k1")); !errors.Is(err, ErrUnknownGame) {
 		t.Fatalf("want ErrUnknownGame, got %v", err)
 	}
-	if _, err := f.svc.Play(ctx, f.userID, "slots", 7, "cs", f.key("k2")); !errors.Is(err, ErrInvalidBet) {
+	if _, err := f.svc.Play(ctx, f.userID, "slots", 7, nil, "cs", f.key("k2")); !errors.Is(err, ErrInvalidBet) {
 		t.Fatalf("want ErrInvalidBet, got %v", err)
 	}
-	if _, err := f.svc.Play(ctx, f.userID, "slots", 5, "cs", ""); !errors.Is(err, ErrIdempotencyKeyInvalid) {
+	if _, err := f.svc.Play(ctx, f.userID, "slots", 5, nil, "cs", ""); !errors.Is(err, ErrIdempotencyKeyInvalid) {
 		t.Fatalf("want ErrIdempotencyKeyInvalid, got %v", err)
 	}
 }

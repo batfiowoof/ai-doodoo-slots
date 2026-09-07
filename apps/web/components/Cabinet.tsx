@@ -5,6 +5,7 @@ import ReelWindow, {
   type Anticipation,
   type SpinSpec,
 } from "./ReelWindow";
+import BetInput from "./BetInput";
 import { PlayError, useFairCurrent, useGames, usePlay, useSession } from "@/lib/api";
 import { sound } from "@/lib/sound";
 import type { SlotsPaytable } from "@/lib/types";
@@ -638,37 +639,18 @@ export default function Cabinet({
               >
                 BET PER SPIN
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                {betSteps.map((b) => {
-                  const selected = b === effBet;
-                  return (
-                    <button
-                      key={b}
-                      type="button"
-                      onClick={() => {
-                        if (busy) return;
-                        sound.unlock();
-                        sound.click();
-                        setBet(b);
-                      }}
-                      style={{
-                        width: 62,
-                        padding: "11px 0",
-                        cursor: busy ? "not-allowed" : "pointer",
-                        fontFamily: "var(--font-display)",
-                        fontSize: 14,
-                        border: `2px solid ${selected ? "#22e8ff" : "#35205c"}`,
-                        background: selected ? "#0b2a33" : "#0d0619",
-                        color: selected ? "#22e8ff" : "#8878b8",
-                        boxShadow: selected
-                          ? "0 0 18px rgba(34,232,255,.5)"
-                          : "none",
-                      }}
-                    >
-                      {b}
-                    </button>
-                  );
-                })}
+              <div style={{ width: 320 }}>
+                <BetInput
+                  value={effBet}
+                  onChange={(v) => setBet(v)}
+                  steps={betSteps}
+                  min={info?.minBet ?? 1}
+                  max={info?.maxBet ?? 10000}
+                  balance={credits ?? undefined}
+                  accent="#22e8ff"
+                  disabled={busy}
+                  testIdPrefix="slots-bet"
+                />
               </div>
             </div>
           </div>

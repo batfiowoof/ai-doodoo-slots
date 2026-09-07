@@ -73,6 +73,25 @@ type EmailToken struct {
 	UsedAt    *time.Time
 }
 
+type MinesRound struct {
+	ID            int64
+	UserID        int64
+	BetID         int64
+	Status        string
+	BetCredits    int64
+	MineCount     int32
+	PayoutCredits int64
+	Mines         []byte
+	Revealed      []byte
+	ActionKeys    []byte
+	ServerSeedID  int64
+	ClientSeed    string
+	Nonce         int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	CompletedAt   *time.Time
+}
+
 type OauthIdentity struct {
 	Provider       string
 	ProviderUserID string

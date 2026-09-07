@@ -7,6 +7,7 @@ import { useSession } from "@/lib/api";
 import type { Me, ProfileUpdatedEvent } from "@/lib/types";
 import { sound } from "@/lib/sound";
 import { Avatar } from "@/components/Avatar";
+import BetInput from "@/components/BetInput";
 import { CrashScene, type ScenePhase } from "@/lib/crashScene";
 
 // The crash room: flight scene, bet panel, crew manifest, flight log. The
@@ -841,36 +842,17 @@ export default function CrashRoom({ slug }: { slug: string }) {
               </span>
             </div>
 
-            <div style={{ display: "flex", gap: 6 }}>
-              {BET_STEPS.map((v) => {
-                const on = betAmount === v;
-                return (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => {
-                      setBetAmount(v);
-                      sound.unlock();
-                      sound.click();
-                    }}
-                    style={{
-                      flex: 1,
-                      fontFamily: "var(--font-body)",
-                      fontSize: 19,
-                      lineHeight: 1,
-                      padding: "6px 0",
-                      border: `1px solid ${on ? "#ff8a1f" : "#6b4a1c"}`,
-                      background: on ? "#2a1406" : "#06040d",
-                      color: on ? "#ff8a1f" : "#8878b8",
-                      cursor: "pointer",
-                      boxShadow: on ? "0 0 12px rgba(255,138,31,.35)" : "none",
-                    }}
-                  >
-                    {v}
-                  </button>
-                );
-              })}
-            </div>
+            <BetInput
+              value={betAmount}
+              onChange={setBetAmount}
+              steps={BET_STEPS}
+              min={snapshot?.room.minBet ?? 1}
+              max={snapshot?.room.maxBet ?? 10000}
+              balance={balance ?? undefined}
+              accent="#ff8a1f"
+              disabled={!canBet}
+              testIdPrefix="crash-bet"
+            />
 
             <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span

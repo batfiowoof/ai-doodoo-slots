@@ -192,9 +192,16 @@ export default function GameMenu() {
     },
   });
   const activeGroup = groups.find((g) => g.key === drilled);
+  // Types with a single room skip the drill-down — their room card takes the
+  // group's seat on the root ring (falling back to the group badge when idle).
+  const rootNodes = groups.flatMap((g) =>
+    g.children.length === 1
+      ? [{ ...g.children[0], badge: g.children[0].badge || g.badge }]
+      : [groupNode(g)],
+  );
   const nodes: RadialNode[] = activeGroup
     ? activeGroup.children
-    : [...groups.map(groupNode), ...tableGames.map((g) => gameNode(g))];
+    : [...rootNodes, ...tableGames.map((g) => gameNode(g))];
 
   // Climb back out if the drilled group emptied out.
   useEffect(() => {
@@ -526,10 +533,73 @@ export default function GameMenu() {
 
 // ---------- wheel node builders ----------
 
+/** Per-game wheel art for the stateful/instant leaves. */
+const GAME_STYLE: Record<string, { accent: string; status: string; art: React.ReactNode; sound: () => void }> = {
+  dice: {
+    accent: "#ffd21f",
+    status: "OVER · UNDER · 99%",
+    sound: () => sound.winTick(4),
+    art: (
+      <span
+        style={{
+          width: 58, height: 58, borderRadius: 12, background: "#ece6ff",
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 0 16px rgba(255,210,31,.45)",
+        }}
+      >
+        <span style={{ display: "grid", gridTemplateColumns: "repeat(2, 10px)", gap: 8 }}>
+          {[0, 1, 2, 3].map((i) => (
+            <span key={i} style={{ width: 10, height: 10, borderRadius: "50%", background: "#0d0619" }} />
+          ))}
+        </span>
+      </span>
+    ),
+  },
+  plinko: {
+    accent: "#b18cff",
+    status: "8 · 12 · 16 ROWS",
+    sound: () => sound.winTick(6),
+    art: (
+      <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+        {[1, 2, 3, 4].map((r) => (
+          <span key={r} style={{ display: "flex", gap: 8 }}>
+            {Array.from({ length: r + 1 }, (_, i) => (
+              <span key={i} style={{ width: 9, height: 9, borderRadius: "50%", background: "#b18cff", boxShadow: "0 0 7px #b18cff" }} />
+            ))}
+          </span>
+        ))}
+        <span style={{ width: 12, height: 12, borderRadius: "50%", background: "#ffd21f", boxShadow: "0 0 10px #ffd21f", marginTop: 2 }} />
+      </span>
+    ),
+  },
+  mines: {
+    accent: "#f2643d",
+    status: "5×5 · CASH OUT",
+    sound: () => sound.turnAlert(),
+    art: (
+      <span style={{ fontSize: 46, lineHeight: 1, filter: "drop-shadow(0 0 10px rgba(242,100,61,.7))" }}>
+        💣
+      </span>
+    ),
+  },
+};
+
 /** Machines get their paytable icons; table games get a little card fan. */
 function gameNode(game: GameInfo): RadialNode {
   const pt = game.paytable;
   if (!pt) {
+    const style = GAME_STYLE[game.id];
+    if (style) {
+      return {
+        key: game.id,
+        label: game.name.toUpperCase(),
+        accent: style.accent,
+        href: `/play/${game.id}`,
+        art: style.art,
+        status: style.status,
+        onLaunchSound: style.sound,
+      };
+    }
     return {
       key: game.id,
       label: game.name.toUpperCase(),

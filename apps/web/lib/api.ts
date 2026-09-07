@@ -71,7 +71,7 @@ export interface PlayResponse {
   gameId: string;
   payoutCredits: number;
   balanceCredits: number;
-  outcome: SlotsOutcome;
+  outcome: SlotsOutcome & Record<string, unknown>;
   fairness: FairCurrent;
   replay: boolean;
 }
@@ -88,6 +88,8 @@ export interface PlayInput {
   gameId: string;
   betCredits: number;
   clientSeed: string;
+  /** Player choices for param games (dice target, plinko risk). */
+  params?: Record<string, unknown>;
 }
 
 /** Places the bet; the server decides everything. On success, patches the
@@ -95,12 +97,13 @@ export interface PlayInput {
 export function usePlay() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ gameId, betCredits, clientSeed }: PlayInput): Promise<PlayResponse> => {
+    mutationFn: async ({ gameId, betCredits, clientSeed, params }: PlayInput): Promise<PlayResponse> => {
       const res = await fetch(`/api/v1/games/${gameId}/play`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           betCredits,
+          params,
           clientSeed,
           idempotencyKey: crypto.randomUUID(),
         }),
@@ -377,6 +380,133 @@ export function useDeal() {
       return res.json() as Promise<HandResponse>;
     },
     onSuccess: (data) => applyHandResponse(qc, data),
+    onError: () => {
+      void qc.invalidateQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
+/** Mines: one stateful round of reveals against hidden mines. */
+export interface MinesRoundView {
+  roundId: number;
+  betId: number;
+  status: "active" | "cashed" | "busted";
+  betCredits: number;
+  mineCount: number;
+  payoutCredits: number;
+  revealed: number[];
+  multiplier: number;
+  nextMultiplier?: number;
+  cashable: boolean;
+  mines?: number[];
+}
+
+export interface MinesResponse {
+  round: MinesRoundView;
+  balanceCredits: number;
+  fairness: FairCurrent;
+  replay: boolean;
+}
+
+function applyMinesResponse(qc: ReturnType<typeof useQueryClient>, data: MinesResponse) {
+  qc.setQueryData<Me>(["me"], (old) =>
+    old ? { ...old, balanceCredits: data.balanceCredits } : old,
+  );
+}
+
+/** Fetches the caller's in-progress mines round, if any. */
+export function useMinesActive(enabled: boolean) {
+  return useQuery({
+    queryKey: ["mines-active"],
+    queryFn: async (): Promise<MinesRoundView | null> => {
+      const res = await getJSON<{ round: MinesRoundView | null }>("/api/v1/mines/active");
+      return res.round;
+    },
+    enabled,
+  });
+}
+
+/** Starts a mines round; the stake debits immediately. */
+export function useMinesStart() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      betCredits: number;
+      mineCount: number;
+    }): Promise<MinesResponse> => {
+      const res = await fetch("/api/v1/games/mines/start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          betCredits: input.betCredits,
+          mineCount: input.mineCount,
+          clientSeed: "",
+          idempotencyKey: crypto.randomUUID(),
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new PlayError(res.status, body?.message ?? `start failed: ${res.status}`);
+      }
+      return res.json() as Promise<MinesResponse>;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(["mines-active"], data.round);
+      applyMinesResponse(qc, data);
+    },
+    onError: () => {
+      void qc.invalidateQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
+/** Reveals one tile; busting settles the round at zero. */
+export function useMinesReveal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ roundId, tile }: { roundId: number; tile: number }): Promise<MinesResponse> => {
+      const res = await fetch(`/api/v1/mines/${roundId}/reveal`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tile, idempotencyKey: crypto.randomUUID() }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new PlayError(res.status, body?.message ?? `reveal failed: ${res.status}`);
+      }
+      return res.json() as Promise<MinesResponse>;
+    },
+    onSuccess: (data) => {
+      const done = data.round.status !== "active";
+      qc.setQueryData(["mines-active"], done ? null : data.round);
+      applyMinesResponse(qc, data);
+    },
+    onError: () => {
+      void qc.invalidateQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
+/** Cashes the active round out at its current multiplier. */
+export function useMinesCashOut() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ roundId }: { roundId: number }): Promise<MinesResponse> => {
+      const res = await fetch(`/api/v1/mines/${roundId}/cashout`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ idempotencyKey: crypto.randomUUID() }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new PlayError(res.status, body?.message ?? `cashout failed: ${res.status}`);
+      }
+      return res.json() as Promise<MinesResponse>;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(["mines-active"], null);
+      applyMinesResponse(qc, data);
+    },
     onError: () => {
       void qc.invalidateQueries({ queryKey: ["me"] });
     },

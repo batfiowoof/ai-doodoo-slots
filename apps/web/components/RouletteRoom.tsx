@@ -14,6 +14,7 @@ import type { Me, ProfileUpdatedEvent } from "@/lib/types";
 import { sound } from "@/lib/sound";
 import { Avatar } from "@/components/Avatar";
 import Chip, { ChipStack } from "@/components/Chip";
+import BetInput from "@/components/BetInput";
 import {
   BOARD_ROWS,
   EUROPEAN_ORDER,
@@ -85,14 +86,6 @@ const wsUrl = () =>
 
 const BETTING_MS = 18000; // mirrors the server window; visual countdown only
 const CHIP_STEPS = [5, 10, 25, 50, 100];
-const CHIP_COLOR: Record<number, "pink" | "cyan" | "green" | "orange" | "purple"> = {
-  5: "pink",
-  10: "cyan",
-  25: "green",
-  50: "orange",
-  100: "purple",
-};
-
 // Wheel geometry: pockets fan clockwise from the top marker.
 const WHEEL_SIZE = 356;
 const SEG = 360 / POCKET_COUNT;
@@ -973,20 +966,18 @@ export default function RouletteRoom({ slug }: { slug: string }) {
               >
                 CHIP
               </span>
-              {CHIP_STEPS.map((v) => (
-                <Chip
-                  key={v}
-                  label={String(v)}
-                  color={CHIP_COLOR[v]}
-                  size={44}
-                  selected={chip === v}
-                  onClick={() => {
-                    sound.unlock();
-                    sound.chipClink();
-                    setChip(v);
-                  }}
-                />
-              ))}
+              <BetInput
+                value={chip}
+                onChange={setChip}
+                steps={CHIP_STEPS}
+                min={snapshot?.room.minBet ?? 1}
+                max={snapshot?.room.maxBet ?? 10000}
+                balance={balance ?? undefined}
+                accent="#5fe08a"
+                disabled={!canBet}
+                compact
+                testIdPrefix="roulette-chip"
+              />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
               <div style={{ textAlign: "right" }}>

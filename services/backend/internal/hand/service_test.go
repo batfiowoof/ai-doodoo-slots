@@ -28,7 +28,7 @@ func newFixture(t *testing.T) *fixture {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 
-	svc := NewService(pool, blackjack.New([]int64{5, 10, 25, 50}), clock.Real{})
+	svc := NewService(pool, blackjack.New(5, 10000), clock.Real{})
 	w := wallet.New(pool)
 	fsvc := fair.NewService(pool)
 

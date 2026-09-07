@@ -35,6 +35,8 @@ func Classic() *Game {
 		},
 		Icons:    []string{"plum", "cherries", "bell", "clover", "star", "diamond-blue", "seven", "crown"},
 		BetSteps: []int64{5, 10, 25, 50, 100},
+		MinBet:   5,
+		MaxBet:   10000,
 	})
 }
 
@@ -63,6 +65,8 @@ func FruitSalad() *Game {
 		},
 		Icons:    []string{"lemon", "orange", "watermelon", "grapes", "strawberry", "blueberries"},
 		BetSteps: []int64{5, 10, 25, 50, 100},
+		MinBet:   5,
+		MaxBet:   10000,
 	})
 }
 
@@ -85,6 +89,8 @@ func Treasure() *Game {
 		},
 		Icons:    []string{"spade", "club", "heart-card", "bar", "coin-stack", "money-bag", "bonus"},
 		BetSteps: []int64{5, 10, 25, 50, 100},
+		MinBet:   5,
+		MaxBet:   10000,
 	})
 }
 
@@ -124,6 +130,14 @@ func validate(cfg Config) error {
 			if pay <= 0 {
 				return fmt.Errorf("symbol %q pay %d is non-positive", s.Name, pay)
 			}
+		}
+	}
+	if cfg.MinBet <= 0 || cfg.MaxBet < cfg.MinBet {
+		return fmt.Errorf("bet range [%d, %d] invalid", cfg.MinBet, cfg.MaxBet)
+	}
+	for _, step := range cfg.BetSteps {
+		if step < cfg.MinBet || step > cfg.MaxBet {
+			return fmt.Errorf("bet step %d outside range [%d, %d]", step, cfg.MinBet, cfg.MaxBet)
 		}
 	}
 	return nil

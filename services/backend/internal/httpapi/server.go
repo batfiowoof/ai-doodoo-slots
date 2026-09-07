@@ -18,8 +18,11 @@ import (
 	"github.com/ai-doodoo-slots/services/backend/internal/fair"
 	"github.com/ai-doodoo-slots/services/backend/internal/game"
 	"github.com/ai-doodoo-slots/services/backend/internal/game/blackjack"
+	"github.com/ai-doodoo-slots/services/backend/internal/game/dice"
+	"github.com/ai-doodoo-slots/services/backend/internal/game/plinko"
 	"github.com/ai-doodoo-slots/services/backend/internal/game/slots"
 	"github.com/ai-doodoo-slots/services/backend/internal/hand"
+	"github.com/ai-doodoo-slots/services/backend/internal/mines"
 	"github.com/ai-doodoo-slots/services/backend/internal/play"
 	"github.com/ai-doodoo-slots/services/backend/internal/theme"
 	"github.com/ai-doodoo-slots/services/backend/internal/wallet"
@@ -39,7 +42,8 @@ type Server struct {
 	play         *play.Service
 	playLimiter  *rateLimiter
 	authLimiter  *rateLimiter
-	hand         *hand.Service // blackjack deal/action flow; nil-safe routes
+	hand         *hand.Service  // blackjack deal/action flow; nil-safe routes
+	mines        *mines.Service // stateful mines rounds; nil-safe routes
 	themes       *theme.Service
 	admin        *admin.Service
 	clock        clock.Clock
@@ -116,15 +120,28 @@ func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieS
 	registry.Register(slots.Classic())
 	registry.Register(slots.FruitSalad())
 	registry.Register(slots.Treasure())
+	registry.Register(dice.New())
+	registry.Register(plinko.New())
 	// Blackjack is a stateful multi-request game, not a single-call engine:
 	// it registers metadata-only so the arcade floor lists it, while its
 	// deal/action endpoints own the flow.
-	bjEngine := blackjack.New([]int64{5, 10, 25, 50})
+	bjEngine := blackjack.New(5, 10000)
+	bjMin, bjMax := bjEngine.BetLimits()
 	registry.RegisterListing(game.Listing{
 		ID:             blackjack.GameID,
 		Name:           "Blackjack",
 		TheoreticalRTP: bjEngine.TheoreticalRTP(),
 		BetSteps:       bjEngine.BetSteps(),
+		MinBet:         bjMin,
+		MaxBet:         bjMax,
+		Kind:           "stateful",
+	})
+	registry.RegisterListing(game.Listing{
+		ID:             "mines",
+		Name:           "Mines",
+		TheoreticalRTP: 0.99,
+		MinBet:         1,
+		MaxBet:         10000,
 		Kind:           "stateful",
 	})
 	s := &Server{
@@ -137,6 +154,7 @@ func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieS
 		playLimiter:  newRateLimiter(clk, playWindow, playMax),
 		authLimiter:  newRateLimiter(clk, time.Minute, 30),
 		hand:         hand.NewService(pool, bjEngine, clk),
+		mines:        mines.NewService(pool, clk),
 		admin:        admin.NewService(pool),
 		themes:       nil,
 		clock:        clk,
@@ -169,6 +187,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/games/blackjack/deal", s.handleBlackjackDeal)
 	mux.HandleFunc("POST /api/v1/hands/{id}/action", s.handleHandAction)
 	mux.HandleFunc("GET /api/v1/hands/active", s.handleActiveHand)
+	mux.HandleFunc("POST /api/v1/games/mines/start", s.handleMinesStart)
+	mux.HandleFunc("POST /api/v1/mines/{id}/reveal", s.handleMinesReveal)
+	mux.HandleFunc("POST /api/v1/mines/{id}/cashout", s.handleMinesCashOut)
+	mux.HandleFunc("GET /api/v1/mines/active", s.handleActiveMinesRound)
 	mux.HandleFunc("GET /api/v1/bets", s.handleListBets)
 	mux.HandleFunc("GET /api/v1/fair/current", s.handleFairCurrent)
 	mux.HandleFunc("POST /api/v1/fair/rotate", s.handleFairRotate)

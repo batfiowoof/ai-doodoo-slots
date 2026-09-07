@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Backdrop from "@/components/Backdrop";
-import Chip, { ChipStack } from "@/components/Chip";
+import { ChipStack } from "@/components/Chip";
+import BetInput from "@/components/BetInput";
 import HistoryTable from "@/components/HistoryTable";
 import { NavButton, NavLink } from "@/components/NavButton";
 import PlayingCard from "@/components/PlayingCard";
@@ -646,25 +647,17 @@ export default function BlackjackTable() {
                     >
                       CHIPS
                     </span>
-                    <div style={{ display: "flex", gap: 12 }}>
-                      {steps.map((s) => (
-                        <Chip
-                          key={s}
-                          label={String(s)}
-                          color={CHIP_COLOR_BY_STEP[s] ?? "pink"}
-                          size={62}
-                          selected={s === betStep}
-                          disabled={busy}
-                          title={`${s} credits`}
-                          onClick={() => {
-                            sound.unlock();
-                            sound.click();
-                            sound.chipClink();
-                            setBetStep(s);
-                          }}
-                        />
-                      ))}
-                    </div>
+                    <BetInput
+                      value={betStep}
+                      onChange={setBetStep}
+                      steps={steps}
+                      min={info?.minBet ?? 1}
+                      max={info?.maxBet ?? 10000}
+                      balance={me?.balanceCredits}
+                      accent="#5fe08a"
+                      disabled={busy}
+                      testIdPrefix="bj-bet"
+                    />
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
                     <span style={{ fontFamily: "var(--font-body)", fontSize: 20, color: "#9fd8c0" }}>

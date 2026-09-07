@@ -69,7 +69,7 @@ func TestBannedUserCannotBet(t *testing.T) {
 	ps := play.NewService(pool, registry)
 
 	// Before the ban, betting works.
-	if _, err := ps.Play(ctx, user.ID, "slots", 10, "s", fmt.Sprintf("ban:%d:a", user.ID)); err != nil {
+	if _, err := ps.Play(ctx, user.ID, "slots", 10, nil, "s", fmt.Sprintf("ban:%d:a", user.ID)); err != nil {
 		t.Fatalf("pre-ban play: %v", err)
 	}
 
@@ -79,7 +79,7 @@ func TestBannedUserCannotBet(t *testing.T) {
 	}
 
 	// Bet path returns the status error.
-	_, err = ps.Play(ctx, user.ID, "slots", 10, "s", fmt.Sprintf("ban:%d:b", user.ID))
+	_, err = ps.Play(ctx, user.ID, "slots", 10, nil, "s", fmt.Sprintf("ban:%d:b", user.ID))
 	if !errors.Is(err, play.ErrStatusForbidsBetting) {
 		t.Fatalf("want ErrStatusForbidsBetting, got %v", err)
 	}
@@ -97,7 +97,7 @@ func TestBannedUserCannotBet(t *testing.T) {
 	if err := svc.SetStatus(ctx, user.ID, user.ID, admin.StatusSelfExcluded, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ps.Play(ctx, user.ID, "slots", 10, "s", fmt.Sprintf("ban:%d:c", user.ID)); !errors.Is(err, play.ErrStatusForbidsBetting) {
+	if _, err := ps.Play(ctx, user.ID, "slots", 10, nil, "s", fmt.Sprintf("ban:%d:c", user.ID)); !errors.Is(err, play.ErrStatusForbidsBetting) {
 		t.Fatalf("self-excluded bet allowed: %v", err)
 	}
 }

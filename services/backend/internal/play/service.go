@@ -26,14 +26,16 @@ var (
 	ErrUnknownGame = errors.New("unknown game")
 	// ErrInvalidBet wraps the engine's bet validation failure.
 	ErrInvalidBet = errors.New("invalid bet")
+	// ErrInvalidParams wraps a param game's rejected player choices.
+	ErrInvalidParams = errors.New("invalid params")
 	// ErrIdempotencyKeyInvalid covers missing or oversized keys.
 	ErrIdempotencyKeyInvalid = errors.New("idempotency key must be 1-64 characters")
 	// ErrStatusForbidsBetting is returned for banned/self-excluded accounts.
 	ErrStatusForbidsBetting = errors.New("account status does not permit betting")
 	// Re-exported for handler mapping.
-	ErrInsufficientFunds     = wallet.ErrInsufficientFunds
-	ErrIdempotencyConflict   = wallet.ErrIdempotencyConflict
-	ErrWalletNotFound        = wallet.ErrWalletNotFound
+	ErrInsufficientFunds   = wallet.ErrInsufficientFunds
+	ErrIdempotencyConflict = wallet.ErrIdempotencyConflict
+	ErrWalletNotFound      = wallet.ErrWalletNotFound
 )
 
 // Result is what the play endpoint returns.
@@ -68,7 +70,7 @@ func NewService(pool *pgxpool.Pool, registry *game.Registry) *Service {
 // A replayed idempotency key returns the original result and creates no
 // second transaction. Lock order is wallet then seed everywhere, so
 // concurrent plays serialize without deadlock.
-func (s *Service) Play(ctx context.Context, userID int64, gameID string, betCredits int64, clientSeed, idempotencyKey string) (Result, error) {
+func (s *Service) Play(ctx context.Context, userID int64, gameID string, betCredits int64, params json.RawMessage, clientSeed, idempotencyKey string) (Result, error) {
 	if len(idempotencyKey) == 0 || len(idempotencyKey) > 64 {
 		return Result{}, ErrIdempotencyKeyInvalid
 	}
@@ -78,6 +80,17 @@ func (s *Service) Play(ctx context.Context, userID int64, gameID string, betCred
 	}
 	if err := g.ValidateBet(betCredits); err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrInvalidBet, err)
+	}
+	// Param games (dice, plinko) gate the player's choices before any
+	// wallet row is touched.
+	pg, isParamGame := g.(game.ParamGame)
+	if isParamGame {
+		if len(params) == 0 {
+			return Result{}, fmt.Errorf("%w: game requires params", ErrInvalidParams)
+		}
+		if err := pg.ValidateParams(params); err != nil {
+			return Result{}, fmt.Errorf("%w: %v", ErrInvalidParams, err)
+		}
 	}
 
 	tx, err := s.pool.Begin(ctx)
@@ -174,7 +187,12 @@ func (s *Service) Play(ctx context.Context, userID int64, gameID string, betCred
 		return Result{}, fmt.Errorf("decode server seed: %w", err)
 	}
 	stream := fair.NewPersonalStream(plain, effectiveClientSeed, nonce)
-	outcome, err := g.Play(stream, betCredits)
+	var outcome game.Outcome
+	if isParamGame {
+		outcome, err = pg.PlayWithParams(stream, betCredits, params)
+	} else {
+		outcome, err = g.Play(stream, betCredits)
+	}
 	if err != nil {
 		return Result{}, fmt.Errorf("play: %w", err)
 	}
