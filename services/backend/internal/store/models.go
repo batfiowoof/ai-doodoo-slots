@@ -90,6 +90,15 @@ type EmailToken struct {
 	UsedAt    *time.Time
 }
 
+type GameMetadatum struct {
+	GameID     string
+	Category   string
+	Collection string
+	Tags       []string
+	IsNewUntil *time.Time
+	Blurb      string
+}
+
 type MinesRound struct {
 	ID            int64
 	UserID        int64
@@ -113,6 +122,16 @@ type OauthIdentity struct {
 	Provider       string
 	ProviderUserID string
 	UserID         int64
+}
+
+type PlayerEvent struct {
+	ID        int64
+	UserID    int64
+	SessionID pgtype.Int8
+	EventType string
+	GameID    string
+	Context   []byte
+	CreatedAt time.Time
 }
 
 type Room struct {
@@ -205,6 +224,12 @@ type UserAvatar struct {
 	Bytes       []byte
 	Sha256      string
 	UpdatedAt   time.Time
+}
+
+type UserPref struct {
+	UserID             int64
+	PersonalizeEnabled bool
+	UpdatedAt          time.Time
 }
 
 type Wallet struct {

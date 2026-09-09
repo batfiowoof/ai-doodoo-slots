@@ -484,6 +484,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/lobby/personalized": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's personalized lobby payload
+         * @description Deterministic per-player ranking over the game catalog, plus curated
+         *     sections. Responsible-gambling gates run first: a suppressed or
+         *     restricted player keeps neutral navigation but every promotional
+         *     surface (forYou, trending, new, promo badges) drops out. Cached
+         *     server-side for ~30s.
+         */
+        get: operations["personalizedLobby"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fire-and-forget behavioral events
+         * @description Lightweight launch tracking (a game or table page was opened). Works
+         *     for guests; powers trending and cold-start "continue". Best-effort:
+         *     invalid rows are dropped, never fatal.
+         */
+        post: operations["playerEvents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update player preferences
+         * @description Currently the lobby-personalization toggle (transparency / DSA-style
+         *     non-profiling option). Turning it off restores the static lobby for
+         *     this player. Audited like other profile mutations.
+         */
+        patch: operations["updatePreferences"];
+        trace?: never;
+    };
     "/api/v1/chat/messages": {
         parameters: {
             query?: never;
@@ -739,6 +807,59 @@ export interface components {
             betSteps?: number[];
             /** @description Game-specific display data (symbol weights/pays for slots) */
             paytable?: unknown;
+            /**
+             * @description Catalog grouping used by the lobby tree
+             * @enum {string}
+             */
+            category?: "slots" | "instant" | "table" | "live";
+            /** @description Family label (classic, fruit, adventure, originals) */
+            collection?: string;
+            /** @description Free-form affinity tags powering "because you played" neighbours */
+            tags?: string[];
+            isNew?: boolean;
+            blurb?: string;
+        };
+        PersonalizedEntry: {
+            gameId: string;
+            /** @description Honest small-print reason ("2H AGO", "BECAUSE YOU PLAYED FRUITS") */
+            label?: string;
+        };
+        PersonalizedLobby: {
+            personalized: boolean;
+            promoEligible: boolean;
+            /**
+             * @description Why the flags are set; empty when fully personalized
+             * @enum {string}
+             */
+            reason?: "account_restricted" | "toggle_off" | "cold" | "risk_suppressed";
+            /** @description All catalog game ids, best first */
+            gameRank: string[];
+            continue: components["schemas"]["PersonalizedEntry"][];
+            forYou: components["schemas"]["PersonalizedEntry"][];
+            trending: string[];
+            new: string[];
+            badges: {
+                [key: string]: "TOP PICK" | "HOT" | "NEW" | "RECENT";
+            };
+        };
+        EventsRequest: {
+            events: {
+                /** @enum {string} */
+                type: "launch";
+                gameId: string;
+                context?: {
+                    [key: string]: unknown;
+                };
+            }[];
+        };
+        EventsAccepted: {
+            accepted: number;
+        };
+        PreferencesUpdate: {
+            personalizeEnabled: boolean;
+        };
+        Preferences: {
+            personalizeEnabled: boolean;
         };
         PlayRequest: {
             /**
@@ -1590,6 +1711,79 @@ export interface operations {
                 };
             };
             404: components["responses"]["Error"];
+        };
+    };
+    personalizedLobby: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ranked games and sections */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalizedLobby"];
+                };
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    playerEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EventsRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventsAccepted"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+        };
+    };
+    updatePreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferencesUpdate"];
+            };
+        };
+        responses: {
+            /** @description New preference value */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preferences"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
         };
     };
     getChatHistory: {

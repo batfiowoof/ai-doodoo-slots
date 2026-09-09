@@ -13,6 +13,7 @@ import EmoteWheel from "./EmoteWheel";
 import LeaderboardDialog from "./LeaderboardDialog";
 import PlayerCard from "./PlayerCard";
 import { Avatar } from "./Avatar";
+import { pixelClip } from "./Pixel";
 import { useSession } from "@/lib/api";
 import { useCasinoSocket, type CasinoEnvelope } from "@/lib/useCasinoSocket";
 import { useChatHistory } from "@/lib/social";
@@ -250,7 +251,7 @@ export default function SocialDock() {
 
   return (
     <>
-      {/* dock chips */}
+      {/* dock chips — one horizontal pixel row along the bottom-right */}
       <div
         style={{
           position: "fixed",
@@ -258,7 +259,7 @@ export default function SocialDock() {
           bottom: 20,
           zIndex: 80,
           display: "flex",
-          flexDirection: "column",
+          flexDirection: "row",
           gap: 12,
         }}
       >
@@ -340,8 +341,8 @@ export default function SocialDock() {
             onClick={(e) => e.stopPropagation()}
             style={{
               position: "fixed",
-              right: 100,
-              bottom: 24,
+              right: 20,
+              bottom: 104,
               width: 280,
               maxHeight: 380,
               overflowY: "auto",
@@ -549,61 +550,70 @@ function DockChip({
   onClick: () => void;
   title: string;
 }) {
+  const [hover, setHover] = useState(false);
+  const lit = hover || active;
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
       style={{
         position: "relative",
-        width: 66,
-        height: 66,
-        borderRadius: "50%",
-        border: `3px solid ${accent}`,
-        background: active
-          ? `radial-gradient(circle at 34% 30%, ${accent}55, #120a24 70%)`
-          : "radial-gradient(circle at 34% 30%, #2b1a4d, #120a24 70%)",
-        boxShadow: active
-          ? `0 0 26px ${accent}aa, inset 0 0 0 3px #06040d`
-          : `0 0 12px ${accent}44, inset 0 0 0 3px #06040d`,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 1,
+        border: "none",
+        padding: 0,
+        background: "none",
         cursor: "pointer",
-        transition: "transform .08s ease, box-shadow .08s ease",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = "scale(1.1)";
-        e.currentTarget.style.boxShadow = `0 0 30px ${accent}cc, inset 0 0 0 3px #06040d`;
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "scale(1)";
-        e.currentTarget.style.boxShadow = active
-          ? `0 0 26px ${accent}aa, inset 0 0 0 3px #06040d`
-          : `0 0 12px ${accent}44, inset 0 0 0 3px #06040d`;
+        transform: hover ? "scale(1.08)" : "scale(1)",
+        transition: "transform .1s ease, filter .12s ease",
+        filter: lit ? `drop-shadow(0 0 20px ${accent}cc)` : `drop-shadow(0 0 8px ${accent}44)`,
       }}
     >
-      <span style={{ fontSize: 22, lineHeight: 1 }}>{icon}</span>
-      <span style={{ fontFamily: "var(--font-display)", fontSize: 8, letterSpacing: 1, color: accent }}>{label}</span>
+      {/* accent frame layer + dark stepped core = the pixel border */}
+      <span
+        style={{
+          display: "block",
+          background: accent,
+          clipPath: pixelClip(4),
+          padding: 3,
+        }}
+      >
+        <span
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 1,
+            width: 64,
+            height: 64,
+            clipPath: pixelClip(4),
+            background: active
+              ? `radial-gradient(circle at 34% 30%, ${accent}55, #120a24 70%)`
+              : "radial-gradient(circle at 34% 30%, #2b1a4d, #120a24 70%)",
+          }}
+        >
+          <span style={{ fontSize: 22, lineHeight: 1 }}>{icon}</span>
+          <span style={{ fontFamily: "var(--font-display)", fontSize: 8, letterSpacing: 1, color: accent }}>{label}</span>
+        </span>
+      </span>
       {badge != null && badge > 0 && (
         <span
           style={{
             position: "absolute",
-            top: -4,
-            right: -4,
+            top: -7,
+            right: -7,
             minWidth: 22,
             height: 22,
-            borderRadius: 11,
             background: "#ff2d95",
+            clipPath: pixelClip(3),
             color: "#06040d",
             fontFamily: "var(--font-display)",
             fontSize: 11,
             display: "grid",
             placeItems: "center",
             padding: "0 4px",
-            boxShadow: "0 0 12px #ff2d95",
             animation: "dockBadge .25s cubic-bezier(.2,1.6,.4,1) both",
           }}
         >

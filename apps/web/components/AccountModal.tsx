@@ -6,9 +6,12 @@ import NeonDialog from "@/components/NeonDialog";
 import { sound } from "@/lib/sound";
 import {
   useDeleteAvatar,
+  usePersonalizedLobby,
+  useSelfExclude,
   useSessions,
   useRevokeSession,
   useSession,
+  useUpdatePreferences,
   useUpdateProfile,
   useUploadAvatar,
 } from "@/lib/api";
@@ -21,7 +24,7 @@ const KC_ACCOUNT_URL =
   process.env.NEXT_PUBLIC_KEYCLOAK_ACCOUNT_URL ??
   "http://localhost:8081/realms/retro-casino/account";
 
-type Tab = "profile" | "security";
+type Tab = "profile" | "security" | "lobby";
 
 /** The ACCOUNT overlay: identity, avatar wardrobe, and session controls. */
 export function AccountModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -38,7 +41,8 @@ export function AccountModal({ open, onClose }: { open: boolean; onClose: () => 
 
   if (!open || !me) return null;
 
-  const accent = tab === "profile" ? "#22e8ff" : "#5fe08a";
+  const accent =
+    tab === "profile" ? "#22e8ff" : tab === "security" ? "#5fe08a" : "#ffd21f";
 
   return (
     <NeonDialog open={open} onClose={onClose} title="◆ ACCOUNT" accent={accent} width={980}>
@@ -46,8 +50,10 @@ export function AccountModal({ open, onClose }: { open: boolean; onClose: () => 
       <TabRow tab={tab} onTab={(t) => { sound.click(); setTab(t); }} />
       {tab === "profile" ? (
         <ProfileTab key={me.user.displayName} me={me} onNote={setNote} />
-      ) : (
+      ) : tab === "security" ? (
         <SecurityTab me={me} onNote={setNote} />
+      ) : (
+        <LobbyTab me={me} onNote={setNote} />
       )}
 
       {note && (
@@ -145,6 +151,7 @@ function TabRow({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
   const tabs: { id: Tab; label: string; color: string }[] = [
     { id: "profile", label: "PROFILE", color: "#22e8ff" },
     { id: "security", label: "SECURITY", color: "#5fe08a" },
+    { id: "lobby", label: "LOBBY", color: "#ffd21f" },
   ];
   return (
     <div style={{ display: "flex", gap: 8, padding: "10px 16px 0" }}>
@@ -582,6 +589,204 @@ function SecurityTab({ me, onNote }: { me: Me; onNote: (s: string) => void }) {
         <span style={{ fontFamily: "var(--font-body)", fontSize: 20, color: "#5c4f80" }}>
           REVOKING YOUR CURRENT SESSION LOGS YOU OUT.
         </span>
+      </div>
+    </div>
+  );
+}
+
+const EXCLUDE_OPTIONS: { days: number; label: string }[] = [
+  { days: 1, label: "24 HOURS" },
+  { days: 7, label: "7 DAYS" },
+  { days: 30, label: "30 DAYS" },
+  { days: 0, label: "PERMANENT" },
+];
+
+/** The LOBBY tab: personalization transparency + safer-play controls. */
+function LobbyTab({ me, onNote }: { me: Me; onNote: (s: string) => void }) {
+  const u = me.user;
+  const session = useSession();
+  const recs = usePersonalizedLobby(session.isSuccess);
+  const updatePrefs = useUpdatePreferences();
+  const exclude = useSelfExclude();
+  const [confirmDays, setConfirmDays] = useState<number | null>(null);
+  // The end date comes straight from the self-exclude response; /me doesn't
+  // carry it for previously-set exclusions.
+  const [excludedUntil, setExcludedUntil] = useState<string | null>(null);
+
+  const personalizeOn = recs.data
+    ? recs.data.personalized || recs.data.reason !== "toggle_off"
+    : true;
+
+  const togglePersonalize = () => {
+    sound.click();
+    updatePrefs.mutate(!personalizeOn, {
+      onSuccess: (v) => {
+        onNote(v ? "PERSONALIZED LOBBY ON" : "PERSONALIZED LOBBY OFF");
+        sound.bell();
+      },
+      onError: () => sound.error(),
+    });
+  };
+
+  const selfExcluded = u.status === "self_excluded";
+
+  return (
+    <div style={{ padding: "14px 16px 16px", display: "flex", flexDirection: "column", gap: 18 }}>
+      <div>
+        <FieldLabel>PERSONALIZED LOBBY</FieldLabel>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <button
+            type="button"
+            onClick={togglePersonalize}
+            disabled={updatePrefs.isPending}
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 15,
+              letterSpacing: 2,
+              padding: "9px 16px",
+              cursor: "pointer",
+              minWidth: 120,
+              border: `2px solid ${personalizeOn ? "#ffd21f" : "#35205c"}`,
+              background: personalizeOn ? "#2a2206" : "#150a2a",
+              color: personalizeOn ? "#ffd21f" : "#8878b8",
+              boxShadow: personalizeOn ? "0 0 14px rgba(255,210,31,.35)" : "none",
+            }}
+          >
+            {updatePrefs.isPending ? "…" : personalizeOn ? "★ ON" : "OFF"}
+          </button>
+          <span style={{ fontFamily: "var(--font-body)", fontSize: 20, color: "#cfc4f2" }}>
+            {personalizeOn
+              ? "THE WHEEL REORDERS AROUND HOW YOU PLAY"
+              : "EVERYONE SEES THE SAME STATIC LOBBY"}
+          </span>
+        </div>
+        <span style={{ display: "block", marginTop: 8, fontFamily: "var(--font-body)", fontSize: 19, color: "#5c4f80", lineHeight: 1.45 }}>
+          Uses only your play history on this casino — games you bet on and pages you open — to
+          order the wheel, pick FOR YOU suggestions and mark what is busy. It never changes odds,
+          payouts or offers. Turn it off anytime.
+        </span>
+      </div>
+
+      <div>
+        <FieldLabel>SAFER PLAY</FieldLabel>
+        {selfExcluded ? (
+          <div
+            style={{
+              border: "2px solid #5fe08a",
+              background: "#0b2a33",
+              padding: "12px 16px",
+              fontFamily: "var(--font-display)",
+              fontSize: 14,
+              letterSpacing: 2,
+              color: "#5fe08a",
+              lineHeight: 1.6,
+            }}
+          >
+            SELF-EXCLUSION ACTIVE{excludedUntil ? ` — UNTIL ${new Date(excludedUntil).toLocaleString()}` : ""}
+            <span style={{ display: "block", fontFamily: "var(--font-body)", fontSize: 19, color: "#cfc4f2", letterSpacing: 0 }}>
+              Betting is paused on your account. The lobby stays viewable, without promos or picks.
+            </span>
+          </div>
+        ) : (
+          <>
+            <span style={{ display: "block", marginBottom: 10, fontFamily: "var(--font-body)", fontSize: 19, color: "#5c4f80", lineHeight: 1.45 }}>
+              Need a breather? Pause all betting for a while. The floor stays viewable read-only;
+              promos and personalized picks switch off too.
+            </span>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {EXCLUDE_OPTIONS.map((o) => {
+                const selected = confirmDays === o.days;
+                return (
+                  <button
+                    key={o.days}
+                    type="button"
+                    disabled={exclude.isPending}
+                    onClick={() => {
+                      sound.chipClink();
+                      setConfirmDays(selected ? null : o.days);
+                    }}
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      fontSize: 13,
+                      letterSpacing: 2,
+                      padding: "10px 14px",
+                      cursor: "pointer",
+                      border: `2px solid ${selected ? "#f2643d" : "#4a3a72"}`,
+                      background: selected ? "#2d0a1e" : "#1d1036",
+                      color: selected ? "#f2643d" : "#cfc4f2",
+                    }}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+            {confirmDays !== null && (
+              <div
+                style={{
+                  marginTop: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  border: "2px solid #f2643d",
+                  background: "#2d0a1e",
+                  padding: "10px 14px",
+                  flexWrap: "wrap",
+                }}
+              >
+                <span style={{ fontFamily: "var(--font-display)", fontSize: 13, letterSpacing: 2, color: "#f2643d" }}>
+                  PAUSE BETTING {EXCLUDE_OPTIONS.find((o) => o.days === confirmDays)?.label}?
+                </span>
+                <button
+                  type="button"
+                  disabled={exclude.isPending}
+                  onClick={() => {
+                    sound.click();
+                    exclude.mutate(confirmDays, {
+                      onSuccess: (data) => {
+                        setConfirmDays(null);
+                        setExcludedUntil(data.statusUntil);
+                        onNote("SAFER PLAY ACTIVE");
+                      },
+                      onError: () => sound.error(),
+                    });
+                  }}
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: 13,
+                    letterSpacing: 2,
+                    padding: "8px 16px",
+                    cursor: "pointer",
+                    border: "2px solid #f2643d",
+                    background: "#f2643d",
+                    color: "#06040d",
+                  }}
+                >
+                  {exclude.isPending ? "…" : "CONFIRM"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sound.click();
+                    setConfirmDays(null);
+                  }}
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontSize: 13,
+                    letterSpacing: 2,
+                    padding: "8px 16px",
+                    cursor: "pointer",
+                    border: "1px solid #4a3a72",
+                    background: "#1d1036",
+                    color: "#cfc4f2",
+                  }}
+                >
+                  CANCEL
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

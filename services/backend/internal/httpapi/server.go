@@ -24,6 +24,7 @@ import (
 	"github.com/ai-doodoo-slots/services/backend/internal/hand"
 	"github.com/ai-doodoo-slots/services/backend/internal/mines"
 	"github.com/ai-doodoo-slots/services/backend/internal/play"
+	"github.com/ai-doodoo-slots/services/backend/internal/recs"
 	"github.com/ai-doodoo-slots/services/backend/internal/theme"
 	"github.com/ai-doodoo-slots/services/backend/internal/wallet"
 	"github.com/ai-doodoo-slots/services/backend/internal/ws"
@@ -45,6 +46,7 @@ type Server struct {
 	hand         *hand.Service  // blackjack deal/action flow; nil-safe routes
 	mines        *mines.Service // stateful mines rounds; nil-safe routes
 	themes       *theme.Service
+	recs         *recs.Service // personalized lobby engine; always set
 	admin        *admin.Service
 	clock        clock.Clock
 	logger       *slog.Logger
@@ -156,6 +158,7 @@ func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieS
 		hand:         hand.NewService(pool, bjEngine, clk),
 		mines:        mines.NewService(pool, clk),
 		admin:        admin.NewService(pool),
+		recs:         recs.NewService(pool, clk, logger, gameDisplayNames(registry)),
 		themes:       nil,
 		clock:        clk,
 		logger:       logger,
@@ -165,6 +168,19 @@ func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieS
 		opt(s)
 	}
 	return s
+}
+
+// gameDisplayNames feeds the "because you played" labels. Live games are
+// rooms, not registry listings, so their names are pinned here.
+func gameDisplayNames(registry *game.Registry) map[string]string {
+	names := map[string]string{}
+	for _, l := range registry.Listings() {
+		names[l.ID] = l.Name
+	}
+	names["crash"] = "Crash"
+	names["roulette"] = "Roulette"
+	names["holdem"] = "Texas Hold'em"
+	return names
 }
 
 // Handler builds the full middleware-wrapped route table.
@@ -203,6 +219,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/themes", s.handleCreateTheme)
 	mux.HandleFunc("GET /api/v1/themes", s.handleListThemes)
 	mux.HandleFunc("GET /api/v1/lobby", s.handleLobby)
+	mux.HandleFunc("GET /api/v1/lobby/personalized", s.handlePersonalizedLobby)
+	mux.HandleFunc("POST /api/v1/events", s.handlePlayerEvents)
+	mux.HandleFunc("PATCH /api/v1/me/preferences", s.handleUpdatePreferences)
 	mux.HandleFunc("GET /api/v1/rooms/{slug}", s.handleRoomDetail)
 	mux.HandleFunc("GET /api/v1/chat/messages", s.handleChatHistory)
 	mux.HandleFunc("GET /api/v1/leaderboard", s.handleLeaderboard)

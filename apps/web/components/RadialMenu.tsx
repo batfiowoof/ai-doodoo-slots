@@ -21,6 +21,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { sound } from "@/lib/sound";
+import { postLaunchEvent } from "@/lib/api";
 
 export interface RadialNode {
   key: string;
@@ -30,6 +31,8 @@ export interface RadialNode {
   art?: ReactNode;
   /** Bottom line of small print. */
   status?: string;
+  /** Keep status visible without hover (e.g. honest why-labels). */
+  statusPersistent?: boolean;
   /** Corner tag, e.g. a live count or room state. */
   badge?: string;
   /** Pulsing border + badge treatment for live rooms. */
@@ -43,6 +46,8 @@ export interface RadialNode {
   disabled?: boolean;
   /** Launch sound; defaults to sound.click(). */
   onLaunchSound?: () => void;
+  /** Catalog game id reported to the personalization engine on launch. */
+  trackGameId?: string;
 }
 
 // Design-size stage; the lobby scales it to fit the viewport.
@@ -156,6 +161,7 @@ export default function RadialMenu({
     if (!node.href || launchKey) return;
     if (node.onLaunchSound) node.onLaunchSound();
     else sound.click();
+    if (node.trackGameId) postLaunchEvent(node.trackGameId);
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (reduce) {
       router.push(node.href);
@@ -530,6 +536,8 @@ function inner(node: RadialNode, hover: boolean): ReactNode {
             overflow: "hidden",
             flex: 1,
             minWidth: 0,
+            whiteSpace: "nowrap",
+            textOverflow: "ellipsis",
           }}
         >
           {node.label}
@@ -574,6 +582,10 @@ function inner(node: RadialNode, hover: boolean): ReactNode {
             lineHeight: 1.1,
             color: hover ? "#cfc4f2" : "#8878b8",
             whiteSpace: "nowrap",
+            // Decluttered idle cards: small print reveals on hover, unless
+            // the status is the message (FOR YOU why-labels).
+            opacity: hover || node.statusPersistent ? 1 : 0,
+            transition: "opacity .16s ease",
           }}
         >
           {node.status}

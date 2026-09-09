@@ -586,6 +586,71 @@ paths:
               schema: { $ref: "#/components/schemas/RoomSnapshot" }
         "404": { $ref: "#/components/responses/Error" }
 
+  /api/v1/lobby/personalized:
+    get:
+      operationId: personalizedLobby
+      tags: [lobby]
+      summary: The caller's personalized lobby payload
+      description: |
+        Deterministic per-player ranking over the game catalog, plus curated
+        sections. Responsible-gambling gates run first: a suppressed or
+        restricted player keeps neutral navigation but every promotional
+        surface (forYou, trending, new, promo badges) drops out. Cached
+        server-side for ~30s.
+      responses:
+        "200":
+          description: Ranked games and sections
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PersonalizedLobby" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /api/v1/events:
+    post:
+      operationId: playerEvents
+      tags: [lobby]
+      summary: Fire-and-forget behavioral events
+      description: |
+        Lightweight launch tracking (a game or table page was opened). Works
+        for guests; powers trending and cold-start "continue". Best-effort:
+        invalid rows are dropped, never fatal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EventsRequest" }
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventsAccepted" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /api/v1/me/preferences:
+    patch:
+      operationId: updatePreferences
+      tags: [me]
+      summary: Update player preferences
+      description: |
+        Currently the lobby-personalization toggle (transparency / DSA-style
+        non-profiling option). Turning it off restores the static lobby for
+        this player. Audited like other profile mutations.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PreferencesUpdate" }
+      responses:
+        "200":
+          description: New preference value
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Preferences" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+
   /api/v1/chat/messages:
     get:
       operationId: getChatHistory
@@ -912,6 +977,91 @@ components:
         paytable:
           description: Game-specific display data (symbol weights/pays for slots)
           nullable: true
+        category:
+          type: string
+          enum: [slots, instant, table, live]
+          description: Catalog grouping used by the lobby tree
+        collection:
+          type: string
+          description: Family label (classic, fruit, adventure, originals)
+        tags:
+          type: array
+          items: { type: string }
+          description: Free-form affinity tags powering "because you played" neighbours
+        isNew: { type: boolean }
+        blurb: { type: string }
+
+    PersonalizedEntry:
+      type: object
+      required: [gameId]
+      properties:
+        gameId: { type: string }
+        label:
+          type: string
+          description: Honest small-print reason ("2H AGO", "BECAUSE YOU PLAYED FRUITS")
+
+    PersonalizedLobby:
+      type: object
+      required: [personalized, promoEligible, gameRank, continue, forYou, trending, new, badges]
+      properties:
+        personalized: { type: boolean }
+        promoEligible: { type: boolean }
+        reason:
+          type: string
+          enum: [account_restricted, toggle_off, cold, risk_suppressed]
+          description: Why the flags are set; empty when fully personalized
+        gameRank:
+          type: array
+          items: { type: string }
+          description: All catalog game ids, best first
+        continue:
+          type: array
+          items: { $ref: "#/components/schemas/PersonalizedEntry" }
+        forYou:
+          type: array
+          items: { $ref: "#/components/schemas/PersonalizedEntry" }
+        trending:
+          type: array
+          items: { type: string }
+        new:
+          type: array
+          items: { type: string }
+        badges:
+          type: object
+          additionalProperties: { type: string, enum: [TOP PICK, HOT, NEW, RECENT] }
+
+    EventsRequest:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            required: [type, gameId]
+            properties:
+              type: { type: string, enum: [launch] }
+              gameId: { type: string, maxLength: 32 }
+              context: { type: object, additionalProperties: true }
+
+    EventsAccepted:
+      type: object
+      required: [accepted]
+      properties:
+        accepted: { type: integer }
+
+    PreferencesUpdate:
+      type: object
+      required: [personalizeEnabled]
+      properties:
+        personalizeEnabled: { type: boolean }
+
+    Preferences:
+      type: object
+      required: [personalizeEnabled]
+      properties:
+        personalizeEnabled: { type: boolean }
 
     PlayRequest:
       type: object

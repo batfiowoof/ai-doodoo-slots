@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   BetRow,
@@ -8,6 +9,7 @@ import type {
   GameInfo,
   HandResponse,
   Me,
+  PersonalizedLobby,
   SessionInfo,
   SlotsOutcome,
   AdminUserRow,
@@ -323,6 +325,83 @@ export function useAdminAdjust() {
       void qc.invalidateQueries({ queryKey: ["adminUsers"] });
     },
   });
+}
+
+// ---- Personalized lobby & safer play ----
+
+/** The caller's ranked lobby: sections, badges and RG suppression flags. */
+export function usePersonalizedLobby(enabled: boolean) {
+  return useQuery({
+    queryKey: ["lobby-personalized"],
+    queryFn: () => getJSON<PersonalizedLobby>("/api/v1/lobby/personalized"),
+    enabled,
+    staleTime: 30_000,
+    retry: 1,
+  });
+}
+
+/** Flips the personalization toggle; the engine drops its cache server-side. */
+export function useUpdatePreferences() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (personalizeEnabled: boolean): Promise<boolean> => {
+      const res = await fetch("/api/v1/me/preferences", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ personalizeEnabled }),
+      });
+      if (!res.ok) await profileError(res);
+      const data = (await res.json()) as { personalizeEnabled: boolean };
+      return data.personalizeEnabled;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["lobby-personalized"] });
+    },
+  });
+}
+
+/** Self-exclusion (24h/7d/30d/permanent); the server gates all bet paths. */
+export function useSelfExclude() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (days: number): Promise<{ status: string; statusUntil: string | null }> => {
+      const res = await fetch("/api/v1/me/self-exclude", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ days }),
+      });
+      if (!res.ok) await profileError(res);
+      return res.json() as Promise<{ status: string; statusUntil: string | null }>;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["me"] });
+      void qc.invalidateQueries({ queryKey: ["lobby-personalized"] });
+    },
+  });
+}
+
+/**
+ * Fire-and-forget launch event, posted from the lobby wheel when a player
+ * commits to a game. Never blocks navigation or surfaces errors; powers
+ * trending and cold-start "continue" (the only signal a guest produces).
+ */
+export function postLaunchEvent(gameId: string): void {
+  void fetch("/api/v1/events", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ events: [{ type: "launch", gameId }] }),
+    keepalive: true,
+  }).catch(() => {});
+}
+
+/** Component-level convenience: tracks one launch per mounted game id. */
+export function useTrackLaunch(gameId: string | undefined) {
+  const fired = useRef<string | null>(null);
+  useEffect(() => {
+    if (!gameId || fired.current === gameId) return;
+    fired.current = gameId;
+    postLaunchEvent(gameId);
+  }, [gameId]);
 }
 
 // ---- Blackjack (stateful deal/action flow) ----

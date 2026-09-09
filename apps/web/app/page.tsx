@@ -6,13 +6,13 @@ import PixelSymbol from "@/components/PixelSymbol";
 import PixelCard from "@/components/PixelCard";
 import { NavLink } from "@/components/NavButton";
 import { sound } from "@/lib/sound";
-import { useDeposit, useGames, useSession } from "@/lib/api";
+import { useDeposit, useGames, usePersonalizedLobby, useSession } from "@/lib/api";
 import { useLobby, type LobbyRoom } from "@/lib/useLobby";
 import { EUROPEAN_ORDER, POCKET_COLORS, pocketColor } from "@/lib/roulette";
 import { Avatar } from "@/components/Avatar";
 import { AccountModal } from "@/components/AccountModal";
 import RadialMenu, { type RadialNode } from "@/components/RadialMenu";
-import type { GameInfo } from "@/lib/types";
+import type { GameInfo, PersonalizedLobby } from "@/lib/types";
 import { greetingPool, pickGreeting } from "@/lib/greeting";
 
 // Design-size wheel stage, scaled to fit the viewport. Wide and short on
@@ -26,6 +26,8 @@ export default function GameMenu() {
   const games = useGames();
   const deposit = useDeposit();
   const lobby = useLobby();
+  const recs = usePersonalizedLobby(session.isSuccess);
+  const recsData: PersonalizedLobby | undefined = recs.data;
   const [depositNote, setDepositNote] = useState<string | null>(null);
   const [stageScale, setStageScale] = useState(1);
   const [muted, setMuted] = useState(false);
@@ -110,6 +112,19 @@ export default function GameMenu() {
   const rouletteRooms = lobby.rooms.filter((r) => r.gameId === "roulette");
   const holdemRooms = lobby.rooms.filter((r) => r.gameId === "holdem");
 
+  // ── personalization ────────────────────────────────────────────────────
+  // The engine returns every catalog id ranked best-first, plus curated
+  // sections and badge chips. When it's off (toggle, restriction or pure
+  // cold start) the wheel renders exactly as it always did.
+  const rankIndex = new Map<string, number>();
+  (recsData?.gameRank ?? []).forEach((id, i) => {
+    if (!rankIndex.has(id)) rankIndex.set(id, i);
+  });
+  const personalized = !!recsData?.personalized;
+  const badges = recsData?.badges ?? {};
+  const byRank = (a: string, b: string) =>
+    (rankIndex.get(a) ?? Infinity) - (rankIndex.get(b) ?? Infinity);
+
   const liveCount = (rooms: LobbyRoom[]) =>
     rooms.filter((r) => r.state !== undefined && r.state !== "waiting" && r.state !== "").length;
 
@@ -121,6 +136,73 @@ export default function GameMenu() {
     art: React.ReactNode;
     children: RadialNode[];
   }
+
+  /** Node for any catalog id — live rooms come from the lobby, the rest
+   * from the games registry. */
+  const nodeForId = (gameId: string): RadialNode | null => {
+    const room = lobby.rooms.find((r) => r.gameId === gameId);
+    if (room) return roomNode(room);
+    const g = (games.data ?? []).find((x) => x.id === gameId);
+    return g ? gameNode(g) : null;
+  };
+  /** Attach the engine's badge chip, never overriding live room state. */
+  const withBadge = (node: RadialNode, gameId?: string): RadialNode => {
+    const b = badges[gameId ?? node.key];
+    return b && !node.badge ? { ...node, badge: b } : node;
+  };
+
+  // FOR YOU ring: continue → because-you-played → trending → new, deduped.
+  // Under safer-play suppression only the descriptive continue entries
+  // survive (the engine already stripped the promo sections).
+  const forYouChildren: RadialNode[] = [];
+  if (recsData && recsData.reason !== "toggle_off" && recsData.reason !== "account_restricted") {
+    const seen = new Set<string>();
+    const push = (gameId: string, label?: string) => {
+      if (seen.has(gameId) || forYouChildren.length >= 8) return;
+      const base = nodeForId(gameId);
+      if (!base) return;
+      seen.add(gameId);
+      const b = badges[gameId];
+      forYouChildren.push({
+        ...base,
+        badge: b ?? base.badge,
+        status: label ?? base.status,
+        // The why-label IS the message here — never hover-gated.
+        statusPersistent: true,
+        trackGameId: gameId,
+      });
+    };
+    recsData.continue?.forEach((e) => push(e.gameId, e.label));
+    recsData.forYou?.forEach((e) => push(e.gameId, e.label ?? "PICKED FOR YOU"));
+    recsData.trending?.forEach((id) => push(id, "EVERYONE'S PLAYING"));
+    recsData.new?.forEach((id) => push(id, "FRESH ON THE FLOOR"));
+  }
+  const forYouGroup: Group | null = forYouChildren.length
+    ? {
+        key: "foryou",
+        label: "FOR YOU",
+        accent: "#ffd21f",
+        // Under safer-play suppression the ring holds only continue entries,
+        // so the badge says what it honestly is.
+        badge: recsData?.promoEligible ? "PICKED" : "RECENTS",
+        art: (
+          <span
+            style={{
+              fontSize: 46,
+              lineHeight: 1,
+              filter: "drop-shadow(0 0 12px rgba(255,210,31,.75))",
+              animation: "hintBlink 2.4s steps(1) infinite",
+            }}
+          >
+            ✦
+          </span>
+        ),
+        children: forYouChildren,
+      }
+    : null;
+
+  // Slots ordering follows the engine's ranking; badges ride along.
+  const orderedSlotsGames = personalized ? [...slotsGames].sort((a, b) => byRank(a.id, b.id)) : slotsGames;
 
   const groups: Group[] = [];
   if (crashRooms.length > 0) {
@@ -137,7 +219,7 @@ export default function GameMenu() {
           style={{ height: 52, filter: "drop-shadow(0 0 8px rgba(34,232,255,.5))" }}
         />
       ),
-      children: crashRooms.map((r) => roomNode(r)),
+      children: crashRooms.map((r) => withBadge(roomNode(r), "crash")),
     });
   }
   if (rouletteRooms.length > 0) {
@@ -147,7 +229,7 @@ export default function GameMenu() {
       accent: "#5fe08a",
       badge: `${liveCount(rouletteRooms)}/${rouletteRooms.length} LIVE`,
       art: <MiniWheel last={rouletteRooms[0] ? (rouletteRooms[0].recentCrashes ?? [])[0] : undefined} />,
-      children: rouletteRooms.map((r) => roomNode(r)),
+      children: rouletteRooms.map((r) => withBadge(roomNode(r), "roulette")),
     });
   }
   if (holdemRooms.length > 0) {
@@ -157,16 +239,16 @@ export default function GameMenu() {
       accent: "#5fe08a",
       badge: `${liveCount(holdemRooms)}/${holdemRooms.length} LIVE`,
       art: <MiniFelt seated={0} capacity={6} />,
-      children: holdemRooms.map((r) => roomNode(r)),
+      children: holdemRooms.map((r) => withBadge(roomNode(r), "holdem")),
     });
   }
-  if (slotsGames.length > 0) {
-    const icons = slotsGames[0].paytable?.icons.slice(0, 4) ?? [];
+  if (orderedSlotsGames.length > 0) {
+    const icons = orderedSlotsGames[0].paytable?.icons.slice(0, 4) ?? [];
     groups.push({
       key: "slots",
       label: "SLOTS",
       accent: "#ff2d95",
-      badge: `${slotsGames.length} MACHINES`,
+      badge: `${orderedSlotsGames.length} MACHINES`,
       art: (
         <span style={{ display: "flex", gap: 5 }}>
           {icons.map((icon, i) => (
@@ -174,11 +256,42 @@ export default function GameMenu() {
           ))}
         </span>
       ),
-      children: slotsGames.map((g) => gameNode(g)),
+      children: orderedSlotsGames.map((g) => withBadge(gameNode(g), g.id)),
     });
   }
 
-  // Root ring: one node per type, single-player tables as direct leaves.
+  // Root ring order: the engine's ranking folds each group to its best
+  // member. Unranked groups keep their built order (stable sort).
+  const groupIds = (key: string): string[] => {
+    switch (key) {
+      case "crash":
+        return ["crash"];
+      case "roulette":
+        return ["roulette"];
+      case "poker":
+        return ["holdem"];
+      case "slots":
+        return orderedSlotsGames.map((g) => g.id);
+      default:
+        return [];
+    }
+  };
+  const orderedGroups = personalized
+    ? groups
+        .map((g, i) => {
+          let best = Infinity;
+          groupIds(g.key).forEach((id) => {
+            const r = rankIndex.get(id);
+            if (r !== undefined) best = Math.min(best, r);
+          });
+          return { g, i, best };
+        })
+        .sort((a, b) => a.best - b.best || a.i - b.i)
+        .map((x) => x.g)
+    : groups;
+
+  const orderedTableGames = personalized ? [...tableGames].sort((a, b) => byRank(a.id, b.id)) : tableGames;
+
   const groupNode = (g: Group): RadialNode => ({
     key: `group:${g.key}`,
     label: g.label,
@@ -191,21 +304,24 @@ export default function GameMenu() {
       setDrilled(g.key);
     },
   });
-  const activeGroup = groups.find((g) => g.key === drilled);
+  const activeGroup = orderedGroups.find((g) => g.key === drilled);
   // Types with a single room skip the drill-down — their room card takes the
   // group's seat on the root ring (falling back to the group badge when idle).
-  const rootNodes = groups.flatMap((g) =>
+  const orderedRoot = orderedGroups.flatMap((g) =>
     g.children.length === 1
       ? [{ ...g.children[0], badge: g.children[0].badge || g.badge }]
       : [groupNode(g)],
   );
-  const nodes: RadialNode[] = activeGroup
-    ? activeGroup.children
-    : [...rootNodes, ...tableGames.map((g) => gameNode(g))];
+  const rootNodes = forYouGroup ? [groupNode(forYouGroup), ...orderedRoot] : orderedRoot;
+  const activeChildren =
+    drilled === "foryou" ? forYouGroup?.children : activeGroup?.children;
+  const nodes: RadialNode[] = activeChildren
+    ? activeChildren
+    : [...rootNodes, ...orderedTableGames.map((g) => withBadge(gameNode(g), g.id))];
 
   // Climb back out if the drilled group emptied out.
   useEffect(() => {
-    if (drilled && !activeGroup) setDrilled(null);
+    if (drilled && !activeGroup && drilled !== "foryou") setDrilled(null);
   }, [drilled, activeGroup]);
 
   // Account actions live in the header now — the wheel is games only.
@@ -289,9 +405,11 @@ export default function GameMenu() {
           ? "OPENING THE FLOOR…"
           : games.isError
             ? "CASINO UNREACHABLE"
-            : activeGroup
-              ? "◀ CLICK HUB TO GO BACK"
-              : "◆ PICK YOUR GAME ◆"}
+            : drilled === "foryou"
+              ? "PICKED FOR YOU ◀ BACK"
+              : activeGroup
+                ? "◀ CLICK HUB TO GO BACK"
+                : "◆ PICK YOUR GAME ◆"}
       </span>
     </>
   );
@@ -510,10 +628,26 @@ export default function GameMenu() {
             <RadialMenu
               nodes={nodes}
               hub={hub}
-              onHubActivate={activeGroup ? () => setDrilled(null) : undefined}
+              onHubActivate={activeGroup || drilled === "foryou" ? () => setDrilled(null) : undefined}
             />
           </div>
         </div>
+
+        {recsData && !recsData.promoEligible && recsData.reason === "risk_suppressed" && (
+          <div
+            style={{
+              textAlign: "center",
+              paddingBottom: 6,
+              fontFamily: "var(--font-display)",
+              fontSize: 11,
+              letterSpacing: 3,
+              color: "#5fe08a",
+              opacity: 0.9,
+            }}
+          >
+            SAFER PLAY · PROMOS PAUSED
+          </div>
+        )}
 
         <div
           style={{

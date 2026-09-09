@@ -9,6 +9,7 @@ import (
 
 	"github.com/ai-doodoo-slots/services/backend/internal/bigwin"
 	"github.com/ai-doodoo-slots/services/backend/internal/play"
+	"github.com/ai-doodoo-slots/services/backend/internal/recs"
 	"github.com/ai-doodoo-slots/services/backend/internal/store"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -98,12 +99,18 @@ func (s *Server) handlePlay(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleListGames exposes the registry for display only.
+// handleListGames exposes the registry for display only, decorated with the
+// catalog metadata that drives lobby grouping and badges.
 func (s *Server) handleListGames(w http.ResponseWriter, r *http.Request) {
 	listings := s.registry.Listings()
+	meta := map[string]recs.Meta{}
+	if s.recs != nil {
+		meta = s.recs.MetadataMap(r.Context())
+	}
+	now := s.clock.Now()
 	games := make([]map[string]any, 0, len(listings))
 	for _, l := range listings {
-		games = append(games, map[string]any{
+		g := map[string]any{
 			"id":             l.ID,
 			"name":           l.Name,
 			"theoreticalRtp": l.TheoreticalRTP,
@@ -112,7 +119,15 @@ func (s *Server) handleListGames(w http.ResponseWriter, r *http.Request) {
 			"minBet":         l.MinBet,
 			"maxBet":         l.MaxBet,
 			"kind":           l.Kind,
-		})
+		}
+		if m, ok := meta[l.ID]; ok {
+			g["category"] = m.Category
+			g["collection"] = m.Collection
+			g["tags"] = m.Tags
+			g["isNew"] = m.IsNewUntil != nil && m.IsNewUntil.After(now)
+			g["blurb"] = m.Blurb
+		}
+		games = append(games, g)
 	}
 	writeJSON(w, http.StatusOK, games)
 }

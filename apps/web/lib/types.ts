@@ -9,6 +9,8 @@ export type SessionInfo = components["schemas"]["SessionInfo"];
 export type ChatMessage = components["schemas"]["ChatMessage"];
 export type LeaderboardEntry = components["schemas"]["LeaderboardEntry"];
 export type Leaderboard = components["schemas"]["Leaderboard"];
+export type PersonalizedEntry = components["schemas"]["PersonalizedEntry"];
+export type PersonalizedLobby = components["schemas"]["PersonalizedLobby"];
 
 /** Live profile change broadcast on the room/lobby socket. */
 export interface ProfileUpdatedEvent {
@@ -74,6 +76,11 @@ export interface GameInfo {
   minBet?: number;
   maxBet?: number;
   paytable?: SlotsPaytable | null;
+  category?: "slots" | "instant" | "table" | "live";
+  collection?: string;
+  tags?: string[];
+  isNew?: boolean;
+  blurb?: string;
 }
 
 /** Blackjack hand view; dealerCards hides the hole card while active. */
