@@ -14,10 +14,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// playWindow / playMax: 20 plays per 10 seconds per user.
+// playWindow / playMax: 60 plays per 10 seconds per user (plinko multi-drop).
 var (
 	playWindow = 10 * time.Second
-	playMax    = 20
+	playMax    = 60
 )
 
 // handlePlay runs a server-authoritative bet.

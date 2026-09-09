@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { PlayError, useGames, usePlay, useSession } from "@/lib/api";
 import { sound } from "@/lib/sound";
+import { Ball, PlinkoWorld } from "@/lib/plinkoPhysics";
 import BetInput from "@/components/BetInput";
 import Backdrop from "@/components/Backdrop";
 
-// PLINKO — canvas peg board, server-decided path. Each drop animates the
-// exact L/R sequence the engine recorded, so what you watch is what paid.
+// PLINKO — canvas peg board with steered real physics. The server records
+// the exact L/R sequence per row; balls fall under gravity, bounce off pegs,
+// and are biased at each hit so what you watch is what paid. Drop freely —
+// balls fly concurrently, each bet settles independently.
 
 const ACCENT = "#b18cff";
 const GOOD = "#5fe08a";
@@ -35,6 +38,16 @@ const TABLES: Record<string, Record<number, number[]>> = {
   },
 };
 
+// Board geometry (CSS pixels; canvas is DPR-scaled).
+const W = 560;
+const H = 560;
+const TOP = 46;
+const BOTTOM = H - 64;
+
+function multColor(mult: number): string {
+  return mult >= 10 ? "#ff2d95" : mult >= 2 ? "#ff8a1f" : mult >= 1 ? GOOD : "#b9a8e8";
+}
+
 interface PlinkoOutcome {
   rows: number;
   risk: string;
@@ -45,15 +58,45 @@ interface PlinkoOutcome {
 }
 
 interface Drop {
-  path: boolean[];
   rows: number;
   bucket: number;
+  mult: number;
+  rights: number;
   payout: number;
   bet: number;
   profit: boolean;
   key: number;
-  /** rAF bookkeeping: last peg row the ball crossed. */
-  lastSeg?: number;
+}
+
+interface PegFlash {
+  key: string;
+  x: number;
+  y: number;
+  at: number;
+}
+
+interface BucketFlash {
+  k: number;
+  rows: number;
+  at: number;
+  color: string;
+}
+
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  at: number;
+  color: string;
+}
+
+interface Popup {
+  x: number;
+  y: number;
+  at: number;
+  text: string;
+  color: string;
 }
 
 export default function PlinkoScreen({ gameId }: { gameId: string }) {
@@ -66,21 +109,47 @@ export default function PlinkoScreen({ gameId }: { gameId: string }) {
   const [rows, setRows] = useState(12);
   const [risk, setRisk] = useState<(typeof RISKS)[number]>("medium");
   const [drops, setDrops] = useState<Drop[]>([]);
-  const [dropBusy, setDropBusy] = useState(false);
   const [lastResult, setLastResult] = useState<Drop | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boardRef = useRef({ rows, risk });
   boardRef.current = { rows, risk };
-  const balance = session.data?.balanceCredits;
+  // Server settles instantly at bet time; the displayed balance hides each
+  // in-flight payout until its ball lands, so wins count up at the bucket.
+  const serverBalance = session.data?.balanceCredits;
+  const serverBalanceRef = useRef<number | null>(null);
+  serverBalanceRef.current = serverBalance ?? null;
+  const [shownBalance, setShownBalance] = useState<number | null>(null);
+  const [availBalance, setAvailBalance] = useState<number | null>(null);
+  const pendingRef = useRef(new Map<object, number>());
+  const shownRef = useRef<number | null>(null);
+  const shownIntRef = useRef(0);
+  const availIntRef = useRef(0);
 
-  // Board geometry (CSS pixels; canvas is DPR-scaled).
-  const W = 560;
-  const H = 560;
-  const TOP = 46;
-  const BOTTOM = H - 64;
+  // Physics worlds are pure geometry per row count — shared across drops.
+  const worldsRef = useRef(new Map<number, PlinkoWorld>());
+  const worldFor = useCallback((r: number) => {
+    let wd = worldsRef.current.get(r);
+    if (!wd) {
+      wd = new PlinkoWorld(r, W, TOP, BOTTOM);
+      worldsRef.current.set(r, wd);
+    }
+    return wd;
+  }, []);
 
-  // The rAF board: pegs are static, balls interpolate their recorded path,
-  // buckets flash on landing.
+  // The rAF board: stepped physics balls + transient effects, no React state.
+  const ballsRef = useRef<Ball[]>([]);
+  const pegFlashesRef = useRef<PegFlash[]>([]);
+  const bucketFlashesRef = useRef<BucketFlash[]>([]);
+  const particlesRef = useRef<Particle[]>([]);
+  const popupsRef = useRef<Popup[]>([]);
+  const lastTickRef = useRef(0);
+
+  // Balls fly on the row geometry they were dropped with; a rows change makes
+  // that geometry stale (bets are already settled), so fade them out.
+  useEffect(() => {
+    for (const b of ballsRef.current) b.fadeOut();
+  }, [rows]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -92,134 +161,231 @@ export default function PlinkoScreen({ gameId }: { gameId: string }) {
     ctx.scale(dpr, dpr);
 
     let raf = 0;
-    const start = performance.now();
+    let last = performance.now();
 
     const draw = (now: number) => {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
       const b = boardRef.current;
       const table = TABLES[b.risk][b.rows];
-      const gapX = W / (b.rows + 2);
-      const gapY = (BOTTOM - TOP) / (b.rows + 1);
+      const geo = worldFor(b.rows).geo;
+
+      // physics: substep so a ball never moves further than its radius
+      const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
+      const h = dt / steps;
+      for (const ball of ballsRef.current) {
+        for (let s = 0; s < steps; s++) ball.step(h);
+        if (ball.state === "falling") ball.pushTrail();
+      }
+      // balls that ended without landing (rows-change fades) release their
+      // hidden payout — the bet was settled server-side either way
+      const alive: Ball[] = [];
+      for (const ball of ballsRef.current) {
+        if (ball.state === "done") pendingRef.current.delete(ball);
+        else alive.push(ball);
+      }
+      ballsRef.current = alive;
+
+      // displayed balance: stake leaves at drop, payout counts up at the bucket
+      if (serverBalanceRef.current != null) {
+        let pending = 0;
+        for (const v of pendingRef.current.values()) pending += v;
+        const target = serverBalanceRef.current - pending;
+        if (target !== availIntRef.current) {
+          availIntRef.current = target;
+          setAvailBalance(target);
+        }
+        if (shownRef.current === null) shownRef.current = target;
+        const diff = target - shownRef.current;
+        shownRef.current = Math.abs(diff) < 0.6 ? target : shownRef.current + diff * Math.min(1, dt * 9);
+        const shown = Math.round(shownRef.current);
+        if (shown !== shownIntRef.current) {
+          shownIntRef.current = shown;
+          setShownBalance(shown);
+        }
+      }
 
       ctx.clearRect(0, 0, W, H);
 
-      // pegs
+      // pegs, brightened by fresh hits
+      pegFlashesRef.current = pegFlashesRef.current.filter((f) => now - f.at < 320);
       for (let r = 2; r <= b.rows; r++) {
-        for (let c = 0; c <= r; c++) {
-          const x = W / 2 + (c - r / 2) * gapX;
-          const y = TOP + (r - 1) * gapY;
+        for (const peg of geo.pegRows[r]) {
+          const flash = pegFlashesRef.current.find((f) => f.x === peg.x && f.y === peg.y);
+          const hot = flash && now - flash.at < 130;
           ctx.beginPath();
-          ctx.arc(x, y, 3.2, 0, Math.PI * 2);
-          ctx.fillStyle = "#8f7fd8";
+          ctx.arc(peg.x, peg.y, geo.pegR, 0, Math.PI * 2);
+          ctx.fillStyle = hot ? "#e4d9ff" : "#8f7fd8";
           ctx.fill();
         }
       }
-
-      // falling balls — each animates its recorded path over ~1.4s
-      const active: Drop[] = [];
-      for (const d of dropsRef.current) {
-        const t = (now - start - d.key) / 1400;
-        if (t < 0) {
-          active.push(d);
-          continue;
-        }
-        if (t > 1.35) continue; // landed; bucket flash handled below
-        active.push(d);
-        const seg = Math.min(b.rows, Math.floor(t * b.rows));
-        const frac = Math.min(b.rows, t * b.rows) - seg;
-        let x = W / 2;
-        for (let i = 0; i < seg; i++) x += d.path[i] ? gapX / 2 : -gapX / 2;
-        const midX = x + (seg < d.rows ? (d.path[seg] ? gapX / 4 : -gapX / 4) : 0);
-        const yTop = TOP + Math.max(0, seg - 0.5) * gapY;
-        const y = seg >= d.rows ? BOTTOM : yTop + frac * gapY;
-        const bx = seg >= d.rows ? x : x + (midX - x) * frac;
+      for (const f of pegFlashesRef.current) {
+        const t = (now - f.at) / 300;
         ctx.beginPath();
-        ctx.arc(bx, y, 6.5, 0, Math.PI * 2);
-        ctx.fillStyle = "#ffd21f";
-        ctx.shadowColor = ACCENT;
-        ctx.shadowBlur = 14;
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        // peg tick per row crossing
-        if (seg !== (d.lastSeg ?? -1)) {
-          d.lastSeg = seg;
-          if (seg > 0) sound.winTick(seg);
-        }
+        ctx.arc(f.x, f.y, geo.pegR + 2 + t * 14, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(201,186,255,${(1 - t) * 0.65})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
       }
-      dropsRef.current = dropsRef.current.filter((d) => now - start - d.key < 1600);
 
-      // buckets
-      const bw = gapX * 0.92;
+      // buckets, squash-bouncing when hit
+      bucketFlashesRef.current = bucketFlashesRef.current.filter((f) => now - f.at < 750);
+      const bw = geo.gapX * 0.92;
       for (let k = 0; k < table.length; k++) {
-        const x = W / 2 + (k - (table.length - 1) / 2) * gapX;
         const mult = table[k];
-        const hot = lastFlashRef.current?.bucket === k && performance.now() - lastFlashRef.current.at < 900;
-        const color = mult >= 10 ? "#ff2d95" : mult >= 2 ? "#ff8a1f" : mult >= 1 ? GOOD : "#4a3a72";
+        const x = geo.bucketX(k);
+        const flash = bucketFlashesRef.current
+          .filter((f) => f.k === k && f.rows === b.rows)
+          .sort((p, q) => q.at - p.at)[0];
+        const age = flash ? now - flash.at : Infinity;
+        const hot = age < 700;
+        const color = multColor(mult);
+        const squash = age < 160 ? 1 - 0.3 * (1 - age / 160) : 1;
+        const bh = 26 * squash;
         ctx.fillStyle = hot ? color : "#170c2b";
         ctx.strokeStyle = hot ? "#ece6ff" : color;
         ctx.lineWidth = hot ? 2.5 : 1.4;
-        const bx = x - bw / 2;
-        const by = BOTTOM + 8;
-        const r = 6;
         ctx.beginPath();
-        ctx.roundRect(bx, by, bw, 26, r);
+        ctx.roundRect(x - bw / 2, BOTTOM + 8, bw, bh, 6);
         ctx.fill();
         ctx.stroke();
         ctx.fillStyle = hot ? "#0d0619" : color;
         ctx.font = "12px Silkscreen, monospace";
         ctx.textAlign = "center";
-        ctx.fillText(`${mult}×`, x, by + 17);
+        ctx.fillText(`${mult}×`, x, BOTTOM + 8 + 17);
       }
+
+      // falling balls — comet trail, velocity squash, glow
+      for (const ball of ballsRef.current) {
+        const n = ball.trail.length;
+        for (let i = 0; i < n; i++) {
+          const p = ball.trail[i];
+          const f = (i + 1) / n;
+          ctx.globalAlpha = f * f * 0.3;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, geo.ballR * (0.25 + 0.6 * f), 0, Math.PI * 2);
+          ctx.fillStyle = "#ffd21f";
+          ctx.fill();
+        }
+        ctx.globalAlpha = ball.alpha;
+        const stretch = Math.min(0.28, ball.speed / 2600);
+        const ang = Math.atan2(ball.vy, ball.vx);
+        ctx.save();
+        ctx.translate(ball.x, ball.y);
+        ctx.rotate(ang);
+        ctx.scale(1 + stretch, 1 - stretch);
+        ctx.beginPath();
+        ctx.arc(0, 0, geo.ballR, 0, Math.PI * 2);
+        const grad = ctx.createRadialGradient(-2, -2.5, 1, 0, 0, geo.ballR);
+        grad.addColorStop(0, "#fff6c9");
+        grad.addColorStop(0.55, "#ffd21f");
+        grad.addColorStop(1, "#f0a51f");
+        ctx.fillStyle = grad;
+        ctx.shadowColor = ACCENT;
+        ctx.shadowBlur = 16;
+        ctx.fill();
+        ctx.restore();
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1;
+      }
+
+      // land particles
+      particlesRef.current = particlesRef.current.filter((p) => now - p.at < 550);
+      for (const p of particlesRef.current) {
+        const t = (now - p.at) / 550;
+        p.vy += 900 * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        ctx.globalAlpha = 1 - t;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x - 1.4, p.y - 1.4, 2.8, 2.8);
+      }
+      ctx.globalAlpha = 1;
+
+      // floating multiplier popups
+      popupsRef.current = popupsRef.current.filter((p) => now - p.at < 750);
+      for (const p of popupsRef.current) {
+        const t = (now - p.at) / 750;
+        const pop = 1 + 0.35 * Math.max(0, 1 - t * 4);
+        ctx.globalAlpha = 1 - t;
+        ctx.font = `${Math.round(13 * pop)}px Silkscreen, monospace`;
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#0d0619";
+        ctx.fillText(p.text, p.x + 1, p.y - 26 * t + 1);
+        ctx.fillStyle = p.color;
+        ctx.fillText(p.text, p.x, p.y - 26 * t);
+      }
+      ctx.globalAlpha = 1;
 
       raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, []);
-
-  // Mutable refs read by the rAF loop without re-subscribing.
-  const dropsRef = useRef<Drop[]>([]);
-  const lastFlashRef = useRef<{ bucket: number; at: number } | null>(null);
-  useEffect(() => {
-    dropsRef.current = drops;
-  }, [drops]);
+  }, [worldFor]);
 
   const doDrop = () => {
-    if (dropBusy || !session.data) return;
-    if (!balance || balance < bet) {
+    if (!session.data) return;
+    const avail = availBalance ?? serverBalance;
+    if (avail == null || avail < bet) {
       sound.error();
       return;
     }
     sound.unlock();
-    setDropBusy(true);
     play.mutate(
       { gameId, betCredits: bet, clientSeed: "", params: { rows, risk } },
       {
         onSuccess: (res) => {
           const o = res.outcome as unknown as PlinkoOutcome;
-          const d: Drop = {
-            path: o.path,
-            rows: o.rows,
-            bucket: o.bucket,
-            payout: res.payoutCredits,
-            bet,
-            profit: o.profit,
-            key: performance.now(),
-          };
-          dropsRef.current = [...dropsRef.current, d];
-          setDrops((prev) => [...prev.slice(-8), d]);
-          setTimeout(() => {
-            lastFlashRef.current = { bucket: o.bucket, at: performance.now() };
-            sound.chipClink();
-            if (o.multiplier >= 10) sound.bigWin();
-            else if (o.multiplier > 1) sound.jackpot(1);
-            setLastResult(d);
-            setDropBusy(false);
-          }, 1400);
+          const world = worldFor(o.rows);
+          const geo = world.geo;
+          const betAtDrop = bet;
+          const ball = world.drop(o.path, {
+            onPegHit: (peg) => {
+              pegFlashesRef.current.push({ key: `${peg.x},${peg.y}`, x: peg.x, y: peg.y, at: performance.now() });
+              const now = performance.now();
+              if (now - lastTickRef.current > 34) {
+                lastTickRef.current = now;
+                sound.winTick(peg.row - 1);
+              }
+            },
+            onLand: (x) => {
+              pendingRef.current.delete(ball); // payout becomes visible now
+              const now = performance.now();
+              const color = multColor(o.multiplier);
+              bucketFlashesRef.current.push({ k: o.bucket, rows: o.rows, at: now, color });
+              for (let i = 0; i < 10; i++) {
+                particlesRef.current.push({
+                  x,
+                  y: BOTTOM + 8,
+                  vx: (Math.random() - 0.5) * 280,
+                  vy: -60 - Math.random() * 220,
+                  at: now,
+                  color,
+                });
+              }
+              popupsRef.current.push({ x, y: BOTTOM - 4, at: now, text: `${o.multiplier}×`, color });
+              sound.chipClink();
+              if (o.multiplier >= 10) sound.bigWin();
+              else if (o.multiplier > 1) sound.jackpot(1);
+              const d: Drop = {
+                rows: o.rows,
+                bucket: o.bucket,
+                mult: o.multiplier,
+                rights: o.path.filter(Boolean).length,
+                payout: res.payoutCredits,
+                bet: betAtDrop,
+                profit: o.profit,
+                key: now + Math.random(),
+              };
+              setDrops((prev) => [...prev.slice(-11), d]);
+              setLastResult(d);
+            },
+          });
+          pendingRef.current.set(ball, res.payoutCredits); // hidden until the ball lands
+          ballsRef.current.push(ball);
+          if (ballsRef.current.length > 150) ballsRef.current[0].fadeOut();
         },
-        onError: () => {
-          setDropBusy(false);
-          sound.error();
-        },
+        onError: () => sound.error(),
       },
     );
   };
@@ -240,7 +406,7 @@ export default function PlinkoScreen({ gameId }: { gameId: string }) {
           <div style={{ textAlign: "right" }}>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 9, letterSpacing: 3, color: "#5c4f80" }}>BALANCE</div>
             <div style={{ fontFamily: "var(--font-body)", fontSize: 28, color: "#ff8a1f", textShadow: "0 0 14px rgba(255,138,31,.5)" }} data-testid="plinko-balance">
-              {(balance ?? 0).toLocaleString()}
+              {(shownBalance ?? serverBalance ?? 0).toLocaleString()}
             </div>
           </div>
         </header>
@@ -262,7 +428,6 @@ export default function PlinkoScreen({ gameId }: { gameId: string }) {
                       key={r}
                       type="button"
                       data-testid={`plinko-rows-${r}`}
-                      disabled={dropBusy}
                       onClick={() => {
                         sound.click();
                         setRows(r);
@@ -292,7 +457,6 @@ export default function PlinkoScreen({ gameId }: { gameId: string }) {
                       key={r}
                       type="button"
                       data-testid={`plinko-risk-${r}`}
-                      disabled={dropBusy}
                       onClick={() => {
                         sound.click();
                         setRisk(r);
@@ -316,29 +480,28 @@ export default function PlinkoScreen({ gameId }: { gameId: string }) {
                   ))}
                 </div>
               </div>
-              <BetInput value={bet} onChange={setBet} steps={BET_STEPS} min={info?.minBet ?? 1} max={info?.maxBet ?? 10000} balance={balance} accent={ACCENT} disabled={dropBusy} testIdPrefix="plinko-bet" />
+              <BetInput value={bet} onChange={setBet} steps={BET_STEPS} min={info?.minBet ?? 1} max={info?.maxBet ?? 10000} balance={availBalance ?? serverBalance} accent={ACCENT} testIdPrefix="plinko-bet" />
               <button
                 type="button"
                 data-testid="plinko-drop"
-                disabled={dropBusy || !session.data || (balance ?? 0) < bet}
+                disabled={!session.data || (availBalance ?? serverBalance ?? 0) < bet}
                 onClick={doDrop}
                 style={{
                   minHeight: 66,
                   fontFamily: "var(--font-display)",
                   fontSize: 22,
                   letterSpacing: 4,
-                  cursor: dropBusy ? "wait" : "pointer",
+                  cursor: "pointer",
                   border: `3px solid ${ACCENT}`,
-                  background: dropBusy ? "#1d1036" : "linear-gradient(180deg, #241640, #0d0619)",
+                  background: "linear-gradient(180deg, #241640, #0d0619)",
                   color: ACCENT,
                   textShadow: `0 0 18px ${ACCENT}`,
                   boxShadow: `0 0 26px ${ACCENT}44, inset 0 0 22px ${ACCENT}22`,
-                  animation: dropBusy ? "countdownBlink .4s linear infinite" : "radHubGlow 2.2s ease-in-out infinite alternate",
+                  animation: "radHubGlow 2.2s ease-in-out infinite alternate",
                 }}
               >
-                {dropBusy ? "DROPPING…" : `DROP ${bet} CR`}
-              </button>
-            </div>
+                {`DROP ${bet} CR`}
+              </button>            </div>
 
             {lastResult && (
               <div
@@ -351,7 +514,7 @@ export default function PlinkoScreen({ gameId }: { gameId: string }) {
                 }}
               >
                 <div style={{ fontFamily: "var(--font-display)", fontSize: 10, letterSpacing: 2, color: "#5c4f80" }}>
-                  BUCKET {lastResult.bucket + 1}/{table.length} · {lastResult.path.filter(Boolean).length} RIGHTS
+                  BUCKET {lastResult.bucket + 1}/{TABLES[risk][lastResult.rows]?.length ?? "?"} · {lastResult.rights} RIGHTS
                 </div>
                 <div style={{ fontFamily: "var(--font-body)", fontSize: 24, color: lastResult.profit ? GOOD : DANGER }}>
                   {lastResult.profit ? "+" : ""}
@@ -375,7 +538,7 @@ export default function PlinkoScreen({ gameId }: { gameId: string }) {
                       color: d.profit ? GOOD : DANGER,
                     }}
                   >
-                    {TABLES[risk][d.rows]?.[d.bucket] ?? "?"}×
+                    {d.mult}×
                   </span>
                 ))}
             </div>

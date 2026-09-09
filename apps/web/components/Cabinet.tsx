@@ -194,6 +194,8 @@ export default function Cabinet({
     if (!r || !pt) return;
     const { res, bet: betAtSpin } = r;
     const payout = res.payoutCredits;
+    // Meter base = balance after the stake debit; the payout counts up on top.
+    const base = res.balanceCredits - payout;
     if (payout <= 0) {
       setSpinCredits(res.balanceCredits);
       setPhase("idle");
@@ -266,7 +268,7 @@ export default function Cabinet({
 
     if (reduced) {
       setWinShown(payout);
-      setSpinCredits(res.balanceCredits + payout);
+      setSpinCredits(res.balanceCredits);
       overlayRef.current = { ...overlay, winShown: payout };
       onOverlay(overlayRef.current);
       return;
@@ -278,7 +280,7 @@ export default function Cabinet({
       shown = Math.min(payout, shown + step);
       sound.winTick(shown);
       setWinShown(shown);
-      setSpinCredits(res.balanceCredits + shown);
+      setSpinCredits(base + shown);
       if (overlayRef.current) {
         overlayRef.current = { ...overlayRef.current, winShown: shown };
         onOverlay(overlayRef.current);
@@ -337,7 +339,8 @@ export default function Cabinet({
             const targets = grid[0].map((_, c) => grid.map((row) => row[c]));
             const { holds, hotFor } = anticipation(pt, grid);
             setSpec({ id: spinIdRef.current, targets, holds, hotFor });
-            setSpinCredits(res.balanceCredits);
+            // Stake left the meter at pull; hold the payout back until the reels land.
+            setSpinCredits(res.balanceCredits - res.payoutCredits);
             setPhase("spinning");
             sound.startWhir();
           },
