@@ -19,3 +19,7 @@ coverage/
 
 # design handoff bundle (local only)
 Retro casino slots redesign/
+
+# ZCode + Serena local tooling state (plans, MCP config, sim harness, memories)
+.zcode/
+.serena/
