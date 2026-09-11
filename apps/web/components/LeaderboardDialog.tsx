@@ -6,6 +6,7 @@
 import { useState } from "react";
 import NeonDialog from "./NeonDialog";
 import { Avatar } from "./Avatar";
+import NameTag from "./NameTag";
 import { fmtCredits, useLeaderboard, type LeaderboardMetric, type LeaderboardWindow } from "@/lib/social";
 import { sound } from "@/lib/sound";
 import type { LeaderboardEntry } from "@/lib/types";
@@ -211,7 +212,12 @@ function PodiumSpot({
           whiteSpace: "nowrap",
         }}
       >
-        {entry.displayName}
+        <NameTag
+          displayName={entry.displayName}
+          title={entry.title}
+          nameEffect={entry.nameEffect}
+          titleClassName="text-[7px] px-0.5"
+        />
       </button>
       <span style={{ fontFamily: "var(--font-display)", fontSize: 13, color: "#5fe08a" }}>{fmtCredits(entry.value)} cr</span>
       <div
@@ -278,7 +284,12 @@ function Row({
           color: meUserId === entry.userId ? GOLD : "#dcd4f5",
         }}
       >
-        {entry.displayName}
+        <NameTag
+          displayName={entry.displayName}
+          title={entry.title}
+          nameEffect={entry.nameEffect}
+          titleClassName="text-[7px] px-0.5"
+        />
       </button>
       <span style={{ flex: 1 }} />
       <span style={{ fontFamily: "var(--font-display)", fontSize: 12, color: "#5fe08a" }}>{fmtCredits(entry.value)} cr</span>

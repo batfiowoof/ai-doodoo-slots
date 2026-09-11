@@ -21,6 +21,7 @@ interface SeatView {
   seatNo: number;
   userId: number;
   displayName: string;
+  cardSkin?: string;
   state: string;
   stack: number;
   bet: number;
@@ -284,6 +285,13 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
 
   const mySeat = view?.seats.find((s) => s.userId === userId);
   const seated = mySeat !== undefined;
+
+  // A seat's card skin: buy-in snapshot, overridden by any live profile event.
+  const seatSkin = (s: SeatView | undefined): string | undefined => {
+    if (!s) return undefined;
+    return profiles[s.userId]?.cardSkin ?? s.cardSkin ?? undefined;
+  };
+  const mySkin = seatSkin(mySeat);
   const myTurn = view?.toAct !== undefined && view.toAct >= 0 && mySeat?.seatNo === view.toAct;
   const legal = view?.legal?.actions ?? [];
   const callAmount = view?.legal?.callAmount;
@@ -334,6 +342,14 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
     if (myTurn && !prevTurn.current) sound.turnAlert();
     prevTurn.current = myTurn;
   }, [myTurn]);
+
+  // Becoming the actor invalidates the last masked broadcast: table_state
+  // views carry no `legal` (only personalized acks do), so pull a fresh
+  // personalized state the moment the turn lands on us — without this the
+  // action bar stays empty until the seat times out.
+  useEffect(() => {
+    if (myTurn) send("game_action", { action: "state" });
+  }, [myTurn, send]);
 
   // Chips hitting the pot whenever the total climbs.
   const prevPot = useRef(0);
@@ -699,10 +715,10 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
                         {cards.length > 0 && !s.folded ? (
                           <div style={{ display: "flex" }}>
                             <span style={{ transform: "rotate(-9deg)", zIndex: 0 }}>
-                              <PlayingCard code={cards[0]} scale={1} silent dealFrom="felt" dealDelay={i * 60} />
+                              <PlayingCard code={cards[0]} scale={1} silent skin={seatSkin(s)} dealFrom="felt" dealDelay={i * 60} />
                             </span>
                             <span style={{ transform: "rotate(9deg)", marginLeft: -8, zIndex: 1 }}>
-                              <PlayingCard code={cards[1]} scale={1} silent dealFrom="felt" dealDelay={i * 60 + 70} />
+                              <PlayingCard code={cards[1]} scale={1} silent skin={seatSkin(s)} dealFrom="felt" dealDelay={i * 60 + 70} />
                             </span>
                           </div>
                         ) : null}
@@ -776,13 +792,13 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
               }}
             >
               <span className="hole-card" style={{ ["--tilt" as string]: "-8deg", zIndex: 0 }}>
-                <PlayingCard code={myCards[0]} scale={5} dealFrom="felt" dealDelay={0} />
+                <PlayingCard code={myCards[0]} scale={5} skin={mySkin} dealFrom="felt" dealDelay={0} />
               </span>
               <span
                 className="hole-card"
                 style={{ ["--tilt" as string]: "8deg", marginLeft: -30, zIndex: 1 }}
               >
-                <PlayingCard code={myCards[1]} scale={5} dealFrom="felt" dealDelay={150} />
+                <PlayingCard code={myCards[1]} scale={5} skin={mySkin} dealFrom="felt" dealDelay={150} />
               </span>
             </div>
           )}
@@ -977,10 +993,10 @@ export default function PokerRoom({ slug, room }: { slug: string; room: RoomInfo
                         }}
                       >
                         <span style={isWinner ? { animation: "winGlow 1.1s ease-in-out infinite" } : undefined}>
-                          <PlayingCard code={r.cards.slice(0, 2)} scale={2} silent />
+                          <PlayingCard code={r.cards.slice(0, 2)} scale={2} silent skin={seatSkin(view?.seats.find((s) => s.userId === r.userId))} />
                         </span>
                         <span style={isWinner ? { animation: "winGlow 1.1s ease-in-out infinite" } : undefined}>
-                          <PlayingCard code={r.cards.slice(2, 4)} scale={2} silent />
+                          <PlayingCard code={r.cards.slice(2, 4)} scale={2} silent skin={seatSkin(view?.seats.find((s) => s.userId === r.userId))} />
                         </span>
                         <span
                           style={{

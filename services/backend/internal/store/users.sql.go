@@ -90,7 +90,8 @@ INSERT INTO users (display_name, is_guest)
 VALUES ($1, true)
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
           email_verified_at, role, status, status_until,
-          avatar_preset, avatar_version, display_name_updated_at
+          avatar_preset, avatar_version, display_name_updated_at,
+          title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme
 `
 
 func (q *Queries) CreateUserGuest(ctx context.Context, displayName string) (User, error) {
@@ -110,6 +111,12 @@ func (q *Queries) CreateUserGuest(ctx context.Context, displayName string) (User
 		&i.AvatarPreset,
 		&i.AvatarVersion,
 		&i.DisplayNameUpdatedAt,
+		&i.Title,
+		&i.NameEffect,
+		&i.CardSkin,
+		&i.AvatarFrame,
+		&i.PlinkoBall,
+		&i.ProfileTheme,
 	)
 	return i, err
 }
@@ -119,7 +126,8 @@ INSERT INTO users (display_name, email, password_hash, is_guest)
 VALUES ($1, $2, $3, false)
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
           email_verified_at, role, status, status_until,
-          avatar_preset, avatar_version, display_name_updated_at
+          avatar_preset, avatar_version, display_name_updated_at,
+          title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme
 `
 
 type CreateUserRegisteredParams struct {
@@ -145,6 +153,12 @@ func (q *Queries) CreateUserRegistered(ctx context.Context, arg CreateUserRegist
 		&i.AvatarPreset,
 		&i.AvatarVersion,
 		&i.DisplayNameUpdatedAt,
+		&i.Title,
+		&i.NameEffect,
+		&i.CardSkin,
+		&i.AvatarFrame,
+		&i.PlinkoBall,
+		&i.ProfileTheme,
 	)
 	return i, err
 }
@@ -171,7 +185,8 @@ func (q *Queries) DisplayNameTaken(ctx context.Context, arg DisplayNameTakenPara
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, created_at, is_guest, display_name, email, password_hash,
        email_verified_at, role, status, status_until,
-       avatar_preset, avatar_version, display_name_updated_at
+       avatar_preset, avatar_version, display_name_updated_at,
+       title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme
 FROM users
 WHERE email = $1
 `
@@ -193,6 +208,12 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email *string) (User, erro
 		&i.AvatarPreset,
 		&i.AvatarVersion,
 		&i.DisplayNameUpdatedAt,
+		&i.Title,
+		&i.NameEffect,
+		&i.CardSkin,
+		&i.AvatarFrame,
+		&i.PlinkoBall,
+		&i.ProfileTheme,
 	)
 	return i, err
 }
@@ -200,7 +221,8 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email *string) (User, erro
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, created_at, is_guest, display_name, email, password_hash,
        email_verified_at, role, status, status_until,
-       avatar_preset, avatar_version, display_name_updated_at
+       avatar_preset, avatar_version, display_name_updated_at,
+       title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme
 FROM users
 WHERE id = $1
 `
@@ -222,12 +244,19 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.AvatarPreset,
 		&i.AvatarVersion,
 		&i.DisplayNameUpdatedAt,
+		&i.Title,
+		&i.NameEffect,
+		&i.CardSkin,
+		&i.AvatarFrame,
+		&i.PlinkoBall,
+		&i.ProfileTheme,
 	)
 	return i, err
 }
 
 const getUserPublicProfile = `-- name: GetUserPublicProfile :one
-SELECT id, display_name, avatar_preset, avatar_version, role, created_at
+SELECT id, display_name, avatar_preset, avatar_version, role, created_at,
+       title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme
 FROM users
 WHERE id = $1
 `
@@ -239,6 +268,12 @@ type GetUserPublicProfileRow struct {
 	AvatarVersion int64
 	Role          string
 	CreatedAt     time.Time
+	Title         string
+	NameEffect    string
+	CardSkin      string
+	AvatarFrame   string
+	PlinkoBall    string
+	ProfileTheme  string
 }
 
 func (q *Queries) GetUserPublicProfile(ctx context.Context, id int64) (GetUserPublicProfileRow, error) {
@@ -251,8 +286,31 @@ func (q *Queries) GetUserPublicProfile(ctx context.Context, id int64) (GetUserPu
 		&i.AvatarVersion,
 		&i.Role,
 		&i.CreatedAt,
+		&i.Title,
+		&i.NameEffect,
+		&i.CardSkin,
+		&i.AvatarFrame,
+		&i.PlinkoBall,
+		&i.ProfileTheme,
 	)
 	return i, err
+}
+
+const setAvatarFrame = `-- name: SetAvatarFrame :execrows
+UPDATE users SET avatar_frame = $2 WHERE id = $1
+`
+
+type SetAvatarFrameParams struct {
+	ID          int64
+	AvatarFrame string
+}
+
+func (q *Queries) SetAvatarFrame(ctx context.Context, arg SetAvatarFrameParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setAvatarFrame, arg.ID, arg.AvatarFrame)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setAvatarPreset = `-- name: SetAvatarPreset :execrows
@@ -268,6 +326,91 @@ type SetAvatarPresetParams struct {
 
 func (q *Queries) SetAvatarPreset(ctx context.Context, arg SetAvatarPresetParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setAvatarPreset, arg.ID, arg.AvatarPreset)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setCardSkin = `-- name: SetCardSkin :execrows
+UPDATE users SET card_skin = $2 WHERE id = $1
+`
+
+type SetCardSkinParams struct {
+	ID       int64
+	CardSkin string
+}
+
+func (q *Queries) SetCardSkin(ctx context.Context, arg SetCardSkinParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setCardSkin, arg.ID, arg.CardSkin)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setNameEffect = `-- name: SetNameEffect :execrows
+UPDATE users SET name_effect = $2 WHERE id = $1
+`
+
+type SetNameEffectParams struct {
+	ID         int64
+	NameEffect string
+}
+
+func (q *Queries) SetNameEffect(ctx context.Context, arg SetNameEffectParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setNameEffect, arg.ID, arg.NameEffect)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setPlinkoBall = `-- name: SetPlinkoBall :execrows
+UPDATE users SET plinko_ball = $2 WHERE id = $1
+`
+
+type SetPlinkoBallParams struct {
+	ID         int64
+	PlinkoBall string
+}
+
+func (q *Queries) SetPlinkoBall(ctx context.Context, arg SetPlinkoBallParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setPlinkoBall, arg.ID, arg.PlinkoBall)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setProfileTheme = `-- name: SetProfileTheme :execrows
+UPDATE users SET profile_theme = $2 WHERE id = $1
+`
+
+type SetProfileThemeParams struct {
+	ID           int64
+	ProfileTheme string
+}
+
+func (q *Queries) SetProfileTheme(ctx context.Context, arg SetProfileThemeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setProfileTheme, arg.ID, arg.ProfileTheme)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setTitle = `-- name: SetTitle :execrows
+UPDATE users SET title = $2 WHERE id = $1
+`
+
+type SetTitleParams struct {
+	ID    int64
+	Title string
+}
+
+func (q *Queries) SetTitle(ctx context.Context, arg SetTitleParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setTitle, arg.ID, arg.Title)
 	if err != nil {
 		return 0, err
 	}
@@ -295,7 +438,8 @@ SET display_name = $2, display_name_updated_at = now()
 WHERE id = $1
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
           email_verified_at, role, status, status_until,
-          avatar_preset, avatar_version, display_name_updated_at
+          avatar_preset, avatar_version, display_name_updated_at,
+          title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme
 `
 
 type UpdateDisplayNameParams struct {
@@ -320,6 +464,12 @@ func (q *Queries) UpdateDisplayName(ctx context.Context, arg UpdateDisplayNamePa
 		&i.AvatarPreset,
 		&i.AvatarVersion,
 		&i.DisplayNameUpdatedAt,
+		&i.Title,
+		&i.NameEffect,
+		&i.CardSkin,
+		&i.AvatarFrame,
+		&i.PlinkoBall,
+		&i.ProfileTheme,
 	)
 	return i, err
 }
@@ -353,7 +503,8 @@ SET email = $2, password_hash = $3, is_guest = false
 WHERE id = $1 AND is_guest = true
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
           email_verified_at, role, status, status_until,
-          avatar_preset, avatar_version, display_name_updated_at
+          avatar_preset, avatar_version, display_name_updated_at,
+          title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme
 `
 
 type UpgradeGuestUserParams struct {
@@ -380,6 +531,12 @@ func (q *Queries) UpgradeGuestUser(ctx context.Context, arg UpgradeGuestUserPara
 		&i.AvatarPreset,
 		&i.AvatarVersion,
 		&i.DisplayNameUpdatedAt,
+		&i.Title,
+		&i.NameEffect,
+		&i.CardSkin,
+		&i.AvatarFrame,
+		&i.PlinkoBall,
+		&i.ProfileTheme,
 	)
 	return i, err
 }

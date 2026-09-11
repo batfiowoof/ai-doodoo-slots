@@ -13,7 +13,8 @@ INSERT INTO users (display_name, email, email_verified_at, is_guest)
 VALUES ($1, $2, $3, false)
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
           email_verified_at, role, status, status_until,
-          avatar_preset, avatar_version, display_name_updated_at;
+          avatar_preset, avatar_version, display_name_updated_at,
+          title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme;
 
 -- name: UpgradeGuestForKeycloak :one
 -- Guest upgrade in place: the same row keeps its wallet, bets, and seeds.
@@ -25,4 +26,5 @@ SET display_name      = COALESCE(NULLIF(sqlc.arg('display_name')::text, ''), dis
 WHERE id = $1 AND is_guest = true
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
           email_verified_at, role, status, status_until,
-          avatar_preset, avatar_version, display_name_updated_at;
+          avatar_preset, avatar_version, display_name_updated_at,
+          title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme;

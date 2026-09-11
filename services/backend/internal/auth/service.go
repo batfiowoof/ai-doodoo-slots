@@ -61,6 +61,13 @@ type SessionUser struct {
 	// image may still exist, keyed by AvatarVersion > 0).
 	AvatarPreset  string
 	AvatarVersion int64
+	// Equipped cosmetics, mirrored onto DTOs and socket identity.
+	Title        string
+	NameEffect   string
+	CardSkin     string
+	AvatarFrame  string
+	PlinkoBall   string
+	ProfileTheme string
 	// Subject is the Keycloak sub (empty for guests). It addresses the
 	// Keycloak user for profile write-back.
 	Subject string
@@ -125,6 +132,12 @@ func (s *Service) SessionFromToken(ctx context.Context, rawToken string) (*Sessi
 		AvatarPreset:    row.AvatarPreset.String,
 		AvatarVersion:   row.AvatarVersion,
 		DisplayNameUpdatedAt: row.DisplayNameUpdatedAt,
+		Title:           row.Title,
+		NameEffect:      row.NameEffect,
+		CardSkin:        row.CardSkin,
+		AvatarFrame:     row.AvatarFrame,
+		PlinkoBall:      row.PlinkoBall,
+		ProfileTheme:    row.ProfileTheme,
 	}
 
 	if s.clock.Now().Sub(row.LastSeenAt) > touchInterval {

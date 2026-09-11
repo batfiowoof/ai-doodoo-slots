@@ -31,6 +31,8 @@ export interface PlayingCardProps {
   tilt?: number;
   /** Skip the movement sound (crowded scenes). */
   silent?: boolean;
+  /** Equipped card-skin item id ("" = classic). */
+  skin?: string;
   style?: React.CSSProperties;
 }
 
@@ -44,6 +46,7 @@ export default function PlayingCard({
   dim = false,
   tilt = 0,
   silent = false,
+  skin,
   style,
 }: PlayingCardProps) {
   const played = useRef(false);
@@ -87,7 +90,7 @@ export default function PlayingCard({
           }}
         >
           <div style={{ position: "absolute", inset: 0, backfaceVisibility: "hidden" }}>
-            <PixelCard code={code} scale={scale} />
+            <PixelCard code={code} scale={scale} skin={skin} />
           </div>
           <div
             style={{
@@ -97,7 +100,7 @@ export default function PlayingCard({
               transform: "rotateY(180deg)",
             }}
           >
-            <PixelCard code="back" scale={scale} />
+            <PixelCard code="back" scale={scale} skin={skin} />
           </div>
         </div>
       </div>
@@ -107,7 +110,7 @@ export default function PlayingCard({
   return (
     <div style={{ ...outer, animation: dealAnim }}>
       <div style={glow ? { animation: "winGlow 1.1s ease-in-out infinite" } : undefined}>
-        <PixelCard code={code} scale={scale} />
+        <PixelCard code={code} scale={scale} skin={skin} />
       </div>
     </div>
   );

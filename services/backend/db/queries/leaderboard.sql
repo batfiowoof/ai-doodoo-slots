@@ -6,32 +6,38 @@
 
 -- name: LeaderboardBiggestWin :many
 SELECT b.user_id, u.display_name, u.avatar_preset, u.avatar_version,
+       u.title, u.name_effect,
        MAX(b.payout_credits - b.bet_credits)::bigint AS value
 FROM bets b
 JOIN users u ON u.id = b.user_id
 WHERE u.status = 'active'
   AND b.created_at >= now() - (@span::text)::interval
-GROUP BY b.user_id, u.display_name, u.avatar_preset, u.avatar_version
+GROUP BY b.user_id, u.display_name, u.avatar_preset, u.avatar_version,
+         u.title, u.name_effect
 ORDER BY value DESC, b.user_id ASC;
 
 -- name: LeaderboardNetProfit :many
 SELECT b.user_id, u.display_name, u.avatar_preset, u.avatar_version,
+       u.title, u.name_effect,
        SUM(payout_credits - bet_credits)::bigint AS value
 FROM bets b
 JOIN users u ON u.id = b.user_id
 WHERE u.status = 'active'
   AND b.created_at >= now() - (@span::text)::interval
-GROUP BY b.user_id, u.display_name, u.avatar_preset, u.avatar_version
+GROUP BY b.user_id, u.display_name, u.avatar_preset, u.avatar_version,
+         u.title, u.name_effect
 ORDER BY value DESC, b.user_id ASC;
 
 -- name: LeaderboardWagered :many
 SELECT b.user_id, u.display_name, u.avatar_preset, u.avatar_version,
+       u.title, u.name_effect,
        SUM(b.bet_credits)::bigint AS value
 FROM bets b
 JOIN users u ON u.id = b.user_id
 WHERE u.status = 'active'
   AND b.created_at >= now() - (@span::text)::interval
-GROUP BY b.user_id, u.display_name, u.avatar_preset, u.avatar_version
+GROUP BY b.user_id, u.display_name, u.avatar_preset, u.avatar_version,
+         u.title, u.name_effect
 ORDER BY value DESC, b.user_id ASC;
 
 -- name: GetUserBiggestWin :one

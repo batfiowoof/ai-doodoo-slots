@@ -182,6 +182,18 @@ type Session struct {
 	RevokedAt  *time.Time
 }
 
+type ShopItem struct {
+	ID           string
+	Kind         string
+	Name         string
+	Blurb        string
+	PriceCredits int64
+	Rarity       string
+	Payload      []byte
+	Sort         int32
+	IsActive     bool
+}
+
 type Theme struct {
 	ID         int64
 	UserID     int64
@@ -216,6 +228,12 @@ type User struct {
 	AvatarPreset         pgtype.Text
 	AvatarVersion        int64
 	DisplayNameUpdatedAt *time.Time
+	Title                string
+	NameEffect           string
+	CardSkin             string
+	AvatarFrame          string
+	PlinkoBall           string
+	ProfileTheme         string
 }
 
 type UserAvatar struct {
@@ -224,6 +242,12 @@ type UserAvatar struct {
 	Bytes       []byte
 	Sha256      string
 	UpdatedAt   time.Time
+}
+
+type UserInventory struct {
+	UserID     int64
+	ItemID     string
+	AcquiredAt time.Time
 }
 
 type UserPref struct {

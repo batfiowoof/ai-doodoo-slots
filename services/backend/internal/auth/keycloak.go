@@ -236,6 +236,12 @@ func sessionUserFromStore(u *store.User) *SessionUser {
 		CreatedAt:     u.CreatedAt,
 		AvatarPreset:  u.AvatarPreset.String,
 		AvatarVersion: u.AvatarVersion,
+		Title:         u.Title,
+		NameEffect:    u.NameEffect,
+		CardSkin:      u.CardSkin,
+		AvatarFrame:   u.AvatarFrame,
+		PlinkoBall:    u.PlinkoBall,
+		ProfileTheme:  u.ProfileTheme,
 	}
 	if u.Email != nil {
 		su.Email = u.Email

@@ -28,12 +28,14 @@ func (q *Queries) GetUserBiggestWin(ctx context.Context, userID int64) (int64, e
 const leaderboardBiggestWin = `-- name: LeaderboardBiggestWin :many
 
 SELECT b.user_id, u.display_name, u.avatar_preset, u.avatar_version,
+       u.title, u.name_effect,
        MAX(b.payout_credits - b.bet_credits)::bigint AS value
 FROM bets b
 JOIN users u ON u.id = b.user_id
 WHERE u.status = 'active'
   AND b.created_at >= now() - ($1::text)::interval
-GROUP BY b.user_id, u.display_name, u.avatar_preset, u.avatar_version
+GROUP BY b.user_id, u.display_name, u.avatar_preset, u.avatar_version,
+         u.title, u.name_effect
 ORDER BY value DESC, b.user_id ASC
 `
 
@@ -42,6 +44,8 @@ type LeaderboardBiggestWinRow struct {
 	DisplayName   string
 	AvatarPreset  pgtype.Text
 	AvatarVersion int64
+	Title         string
+	NameEffect    string
 	Value         int64
 }
 
@@ -64,6 +68,8 @@ func (q *Queries) LeaderboardBiggestWin(ctx context.Context, span string) ([]Lea
 			&i.DisplayName,
 			&i.AvatarPreset,
 			&i.AvatarVersion,
+			&i.Title,
+			&i.NameEffect,
 			&i.Value,
 		); err != nil {
 			return nil, err
@@ -78,12 +84,14 @@ func (q *Queries) LeaderboardBiggestWin(ctx context.Context, span string) ([]Lea
 
 const leaderboardNetProfit = `-- name: LeaderboardNetProfit :many
 SELECT b.user_id, u.display_name, u.avatar_preset, u.avatar_version,
+       u.title, u.name_effect,
        SUM(payout_credits - bet_credits)::bigint AS value
 FROM bets b
 JOIN users u ON u.id = b.user_id
 WHERE u.status = 'active'
   AND b.created_at >= now() - ($1::text)::interval
-GROUP BY b.user_id, u.display_name, u.avatar_preset, u.avatar_version
+GROUP BY b.user_id, u.display_name, u.avatar_preset, u.avatar_version,
+         u.title, u.name_effect
 ORDER BY value DESC, b.user_id ASC
 `
 
@@ -92,6 +100,8 @@ type LeaderboardNetProfitRow struct {
 	DisplayName   string
 	AvatarPreset  pgtype.Text
 	AvatarVersion int64
+	Title         string
+	NameEffect    string
 	Value         int64
 }
 
@@ -109,6 +119,8 @@ func (q *Queries) LeaderboardNetProfit(ctx context.Context, span string) ([]Lead
 			&i.DisplayName,
 			&i.AvatarPreset,
 			&i.AvatarVersion,
+			&i.Title,
+			&i.NameEffect,
 			&i.Value,
 		); err != nil {
 			return nil, err
@@ -123,12 +135,14 @@ func (q *Queries) LeaderboardNetProfit(ctx context.Context, span string) ([]Lead
 
 const leaderboardWagered = `-- name: LeaderboardWagered :many
 SELECT b.user_id, u.display_name, u.avatar_preset, u.avatar_version,
+       u.title, u.name_effect,
        SUM(b.bet_credits)::bigint AS value
 FROM bets b
 JOIN users u ON u.id = b.user_id
 WHERE u.status = 'active'
   AND b.created_at >= now() - ($1::text)::interval
-GROUP BY b.user_id, u.display_name, u.avatar_preset, u.avatar_version
+GROUP BY b.user_id, u.display_name, u.avatar_preset, u.avatar_version,
+         u.title, u.name_effect
 ORDER BY value DESC, b.user_id ASC
 `
 
@@ -137,6 +151,8 @@ type LeaderboardWageredRow struct {
 	DisplayName   string
 	AvatarPreset  pgtype.Text
 	AvatarVersion int64
+	Title         string
+	NameEffect    string
 	Value         int64
 }
 
@@ -154,6 +170,8 @@ func (q *Queries) LeaderboardWagered(ctx context.Context, span string) ([]Leader
 			&i.DisplayName,
 			&i.AvatarPreset,
 			&i.AvatarVersion,
+			&i.Title,
+			&i.NameEffect,
 			&i.Value,
 		); err != nil {
 			return nil, err

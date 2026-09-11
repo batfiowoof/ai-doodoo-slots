@@ -25,6 +25,12 @@ type Identity struct {
 	// version counter that cache-busts the public avatar URL.
 	AvatarPreset  string
 	AvatarVersion int64
+	// Equipped cosmetics that ride social surfaces: the title badge and name
+	// effect join every broadcast, cardSkin drives how a player's cards
+	// render for everyone at a table.
+	Title      string
+	NameEffect string
+	CardSkin   string
 }
 
 // CanWatch reports whether the identity may connect at all. Banned and
@@ -35,7 +41,7 @@ func (i *Identity) CanWatch() bool {
 }
 
 // IsStaff reports moderator+.
-func (i *Identity) IsStaff() bool {
+func (i Identity) IsStaff() bool {
 	return i.Role == admin.RoleModerator || i.Role == admin.RoleAdmin
 }
 

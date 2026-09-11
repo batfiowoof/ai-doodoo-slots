@@ -841,3 +841,152 @@ select {
     opacity: 1;
   }
 }
+
+/* ---- The Vault: cosmetic effects ------------------------------------- */
+
+/* RAINBOW FLOW: hue cycling via gradient sweep on clipped text. */
+.fx-name-rainbow {
+  background: linear-gradient(90deg, #ff2d95, #ffd319, #39ff14, #2de2ff, #b026ff, #ff2d95);
+  background-size: 400% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: fxRainbow 4s linear infinite;
+}
+@keyframes fxRainbow {
+  0% { background-position: 0% 0; }
+  100% { background-position: -400% 0; }
+}
+
+/* NEON FLICKER: buzzing sign energy. */
+.fx-name-neon {
+  color: #2de2ff;
+  text-shadow: 0 0 6px rgba(45, 226, 255, 0.9), 0 0 14px rgba(45, 226, 255, 0.5);
+  animation: fxNeon 2.6s steps(1, end) infinite;
+}
+@keyframes fxNeon {
+  0%, 100% { opacity: 1; }
+  7% { opacity: 0.35; }
+  8% { opacity: 1; }
+  52% { opacity: 1; }
+  54% { opacity: 0.45; }
+  56% { opacity: 1; }
+  79% { opacity: 0.6; }
+  80% { opacity: 1; }
+}
+
+/* CRYO: cold pulse. */
+.fx-name-ice {
+  color: #bfe9ff;
+  text-shadow: 0 0 6px rgba(120, 200, 255, 0.9), 0 0 2px #fff;
+  animation: fxCold 2.2s ease-in-out infinite;
+}
+@keyframes fxCold {
+  0%, 100% { text-shadow: 0 0 4px rgba(120, 200, 255, 0.6), 0 0 2px #fff; }
+  50% { text-shadow: 0 0 12px rgba(120, 210, 255, 1), 0 0 4px #fff; }
+}
+
+/* INFERNO: burning pulse. */
+.fx-name-fire {
+  color: #ffb347;
+  animation: fxFire 1.6s ease-in-out infinite;
+}
+@keyframes fxFire {
+  0%, 100% { text-shadow: 0 0 5px rgba(255, 80, 0, 0.8), 0 0 12px rgba(255, 140, 0, 0.5); }
+  50% { text-shadow: 0 0 10px rgba(255, 60, 0, 1), 0 0 20px rgba(255, 180, 0, 0.8); }
+}
+
+/* MIDAS: gold shimmer sweep. */
+.fx-name-gold {
+  background: linear-gradient(90deg, #8a6a00 0%, #ffd700 25%, #fff3b0 50%, #ffd700 75%, #8a6a00 100%);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: fxGold 3s linear infinite;
+}
+@keyframes fxGold {
+  0% { background-position: 0% 0; }
+  100% { background-position: -300% 0; }
+}
+
+/* GLITCH: reality buffer underflow. */
+.fx-name-glitch {
+  position: relative;
+  color: #f4f4f4;
+  animation: fxGlitchShift 2.4s steps(1, end) infinite;
+}
+.fx-name-glitch::before,
+.fx-name-glitch::after {
+  content: attr(data-name);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  overflow: hidden;
+}
+.fx-name-glitch::before {
+  color: #ff2d95;
+  animation: fxGlitchA 2.4s steps(1, end) infinite;
+}
+.fx-name-glitch::after {
+  color: #2de2ff;
+  animation: fxGlitchB 2.4s steps(1, end) infinite;
+}
+@keyframes fxGlitchShift {
+  0%, 86%, 100% { transform: none; opacity: 1; }
+  88% { transform: translateX(1px); opacity: 0.85; }
+  90% { transform: translateX(-2px); }
+  92% { transform: translateX(1px); opacity: 1; }
+}
+@keyframes fxGlitchA {
+  0%, 84%, 100% { clip-path: inset(0 0 100% 0); transform: none; }
+  86% { clip-path: inset(0 0 45% 0); transform: translateX(-2px); }
+  90% { clip-path: inset(20% 0 30% 0); transform: translateX(2px); }
+  94% { clip-path: inset(60% 0 0 0); transform: translateX(-1px); }
+}
+@keyframes fxGlitchB {
+  0%, 84%, 100% { clip-path: inset(100% 0 0 0); transform: none; }
+  87% { clip-path: inset(55% 0 0 0); transform: translateX(2px); }
+  91% { clip-path: inset(30% 0 40% 0); transform: translateX(-2px); }
+  95% { clip-path: inset(0 0 70% 0); transform: translateX(1px); }
+}
+
+/* LEGEND title: slow gold pulse. */
+.fx-title-legend {
+  animation: fxLegend 2.8s ease-in-out infinite;
+}
+@keyframes fxLegend {
+  0%, 100% { box-shadow: 0 0 4px rgba(255, 215, 0, 0.4); }
+  50% { box-shadow: 0 0 14px rgba(255, 215, 0, 0.95); }
+}
+
+/* PRISM RING avatar frame: conic gradient in motion. */
+.fx-frame-rainbow {
+  border-radius: 9999px;
+  padding: 4px;
+  background: conic-gradient(#ff2d95, #ffd319, #39ff14, #2de2ff, #b026ff, #ff2d95);
+  animation: fxPrism 3s linear infinite;
+}
+@keyframes fxPrism {
+  0% { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(360deg); }
+}
+
+/* Legendary shop item card glow. */
+.fx-legendary {
+  animation: fxLegendaryGlow 2.4s ease-in-out infinite;
+}
+@keyframes fxLegendaryGlow {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 215, 0, 0.45), inset 0 0 6px rgba(255, 215, 0, 0.2); }
+  50% { box-shadow: 0 0 22px rgba(255, 215, 0, 0.9), inset 0 0 10px rgba(255, 215, 0, 0.35); }
+}
+
+/* Purchase flash on the credits meter. */
+.fx-balance-flash {
+  animation: fxBalanceFlash 0.7s ease-out;
+}
+@keyframes fxBalanceFlash {
+  0% { color: #39ff14; text-shadow: 0 0 16px rgba(57, 255, 20, 1); transform: scale(1.25); }
+  100% { transform: scale(1); }
+}

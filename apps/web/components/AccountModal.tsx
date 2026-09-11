@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/Avatar";
+import NameTag from "@/components/NameTag";
 import NeonDialog from "@/components/NeonDialog";
 import { sound } from "@/lib/sound";
 import {
@@ -110,7 +111,7 @@ function IdentityStrip({ me }: { me: Me }) {
             whiteSpace: "nowrap",
           }}
         >
-          {u.displayName}
+          <NameTag displayName={u.displayName} title={u.title} nameEffect={u.nameEffect} titleClassName="text-[10px] px-1.5" />
         </span>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {u.isGuest ? (
@@ -123,6 +124,22 @@ function IdentityStrip({ me }: { me: Me }) {
             <Badge color="#f2643d" bg="#2d0a1e">{u.status.toUpperCase()}</Badge>
           )}
           <Badge color="#8878b8" bg="#150a2a">SINCE {since}</Badge>
+          <a
+            href="/shop"
+            onClick={() => sound.click()}
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 12,
+              letterSpacing: 2,
+              color: "#ffd21f",
+              background: "#2a2006",
+              border: "1px solid #ffd21f55",
+              padding: "4px 9px",
+              textDecoration: "none",
+            }}
+          >
+            🛒 THE VAULT
+          </a>
         </div>
       </div>
     </div>

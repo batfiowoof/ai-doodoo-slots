@@ -651,6 +651,84 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
 
+  /api/v1/shop/items:
+    get:
+      operationId: getShopItems
+      tags: [shop]
+      summary: Active vault catalog
+      responses:
+        "200":
+          description: Catalog items ordered by kind and price
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShopCatalog" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /api/v1/shop/inventory:
+    get:
+      operationId: getShopInventory
+      tags: [shop]
+      summary: The caller's owned shop items
+      responses:
+        "200":
+          description: Owned items, newest first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShopInventory" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /api/v1/shop/purchase:
+    post:
+      operationId: purchaseShopItem
+      tags: [shop]
+      summary: Buy one catalog item with credits
+      description: |
+        One wallet transaction: ledger debit (kind shop_purchase) plus the
+        inventory grant, idempotency-keyed like a bet. A replayed key returns
+        the original result; an already-owned item is never charged twice.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ShopPurchaseRequest" }
+      responses:
+        "200":
+          description: Purchase recorded (or replayed / already owned)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShopPurchaseResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "402": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
+  /api/v1/me/cosmetics:
+    patch:
+      operationId: updateCosmetics
+      tags: [me]
+      summary: Equip or clear cosmetic slots
+      description: |
+        Free, but every slot is validated against the catalog (kind match and
+        ownership). Republishes the profile event so other players see the
+        change live.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CosmeticsUpdate" }
+      responses:
+        "200":
+          description: Updated me payload
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /api/v1/chat/messages:
     get:
       operationId: getChatHistory
@@ -835,6 +913,24 @@ components:
           type: integer
           format: int64
           description: Bumped on every avatar change; > 0 with empty preset = upload
+        title:
+          type: string
+          description: Equipped shop title item id; empty = none
+        nameEffect:
+          type: string
+          description: Equipped shop name-effect item id; empty = none
+        cardSkin:
+          type: string
+          description: Equipped shop card-skin item id; empty = classic
+        avatarFrame:
+          type: string
+          description: Equipped shop avatar-frame item id; empty = none
+        plinkoBall:
+          type: string
+          description: Equipped shop plinko-ball item id; empty = classic
+        profileTheme:
+          type: string
+          description: Equipped shop profile-theme item id; empty = default
 
     Me:
       type: object
@@ -867,6 +963,12 @@ components:
         avatarVersion: { type: integer, format: int64 }
         role: { type: string }
         createdAt: { type: string, format: date-time }
+        title: { type: string }
+        nameEffect: { type: string }
+        cardSkin: { type: string }
+        avatarFrame: { type: string }
+        plinkoBall: { type: string }
+        profileTheme: { type: string }
 
     ChatMessage:
       type: object
@@ -878,6 +980,8 @@ components:
         avatarPreset: { type: string }
         avatarVersion: { type: integer, format: int64 }
         role: { type: string }
+        title: { type: string }
+        nameEffect: { type: string }
         kind: { type: string, enum: [chat, system] }
         body: { type: string }
         createdAt: { type: string, format: date-time }
@@ -899,6 +1003,8 @@ components:
         displayName: { type: string }
         avatarPreset: { type: string }
         avatarVersion: { type: integer, format: int64 }
+        title: { type: string }
+        nameEffect: { type: string }
         value: { type: integer, format: int64 }
 
     Leaderboard:
@@ -913,6 +1019,76 @@ components:
         me:
           allOf: [{ $ref: "#/components/schemas/LeaderboardEntry" }]
           nullable: true
+
+    ShopItem:
+      type: object
+      required: [id, kind, name, priceCredits, rarity]
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          enum: [title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme, emote_pack]
+        name: { type: string }
+        blurb: { type: string }
+        priceCredits: { type: integer, format: int64 }
+        rarity:
+          type: string
+          enum: [common, rare, epic, legendary]
+        payload:
+          type: object
+          description: Kind-specific extras; emote packs list their emote ids here
+          properties:
+            emotes:
+              type: array
+              items: { type: string }
+
+    ShopCatalog:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ShopItem" }
+
+    ShopInventory:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [itemId, acquiredAt]
+            properties:
+              itemId: { type: string }
+              acquiredAt: { type: string, format: date-time }
+
+    ShopPurchaseRequest:
+      type: object
+      required: [itemId, idempotencyKey]
+      properties:
+        itemId: { type: string }
+        idempotencyKey: { type: string, maxLength: 64 }
+
+    ShopPurchaseResponse:
+      type: object
+      required: [itemId, balanceCredits]
+      properties:
+        itemId: { type: string }
+        balanceCredits: { type: integer, format: int64 }
+        replay: { type: boolean }
+        alreadyOwned: { type: boolean }
+
+    CosmeticsUpdate:
+      type: object
+      description: Equip (item id) or clear (empty string) cosmetic slots; omitted slots stay untouched
+      properties:
+        title: { type: string }
+        nameEffect: { type: string }
+        cardSkin: { type: string }
+        avatarFrame: { type: string }
+        plinkoBall: { type: string }
+        profileTheme: { type: string }
 
     AdminUserRow:
       type: object

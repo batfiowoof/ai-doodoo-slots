@@ -36,6 +36,7 @@ const (
 	KindTipReceived = "tip_received" // the receiving leg
 	KindRain        = "rain"         // rainmaker's distributed debit
 	KindRainShare   = "rain_share"   // each recipient's credit
+	KindShopBuy     = "shop_purchase"
 )
 
 var (

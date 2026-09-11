@@ -50,7 +50,7 @@ func (i *Intake) HandleGameAction(id ws.Identity, payload json.RawMessage) (map[
 	if p.SeatNo != nil {
 		seatNo = *p.SeatNo
 	}
-	req := request{userID: id.UserID, name: id.DisplayName, seatNo: seatNo, idemKey: p.IdempotencyKey}
+	req := request{userID: id.UserID, name: id.DisplayName, cardSkin: id.CardSkin, seatNo: seatNo, idemKey: p.IdempotencyKey}
 	switch p.Action {
 	case "buy_in":
 		if p.IdempotencyKey == "" {

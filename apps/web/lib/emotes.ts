@@ -12,6 +12,8 @@ export interface Emote {
   emoji: string;
   /** /emotes/<id>.gif once the sprite exists; emoji renders until then. */
   src?: string;
+  /** Shop pack that gates this emote ("" = free). Mirrors pack payloads. */
+  pack?: string;
 }
 
 export const EMOTES: Emote[] = [
@@ -27,6 +29,22 @@ export const EMOTES: Emote[] = [
   { id: "heart", label: "LOVE", emoji: "❤️" },
   { id: "money", label: "CASH", emoji: "💸" },
   { id: "snake", label: "SNAKE", emoji: "🐍" },
+  // Vault packs — server rejects sending these without ownership.
+  { id: "party", label: "PARTY", emoji: "🥳", pack: "pack.party" },
+  { id: "bolt", label: "BOLT", emoji: "⚡", pack: "pack.party" },
+  { id: "gem", label: "GEM", emoji: "💎", pack: "pack.party" },
+  { id: "rocket", label: "ROCKET", emoji: "🚀", pack: "pack.party" },
+  { id: "disco", label: "DISCO", emoji: "🪩", pack: "pack.party" },
+  { id: "tilt", label: "TILT", emoji: "🤬", pack: "pack.cope" },
+  { id: "sweat", label: "SWEAT", emoji: "😅", pack: "pack.cope" },
+  { id: "ghost", label: "GHOST", emoji: "👻", pack: "pack.cope" },
+  { id: "alien", label: "ALIEN", emoji: "👽", pack: "pack.cope" },
+  { id: "poop", label: "OOPS", emoji: "💩", pack: "pack.cope" },
+  { id: "whale", label: "WHALE", emoji: "🐋", pack: "pack.highroller" },
+  { id: "crown", label: "CROWN", emoji: "👑", pack: "pack.highroller" },
+  { id: "trophy", label: "TROPHY", emoji: "🏆", pack: "pack.highroller" },
+  { id: "moneybag", label: "BAG", emoji: "💰", pack: "pack.highroller" },
+  { id: "genie", label: "GENIE", emoji: "🧞", pack: "pack.highroller" },
 ];
 
 const byId = new Map(EMOTES.map((e) => [e.id, e]));

@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { Avatar } from "./Avatar";
+import NameTag from "./NameTag";
 import { parseChatBody, emoteVisual } from "@/lib/emotes";
 import { fmtCredits } from "@/lib/social";
 import { sound } from "@/lib/sound";
@@ -251,7 +252,12 @@ export default function ChatPanel({
                       color: nameColor(m.role),
                     }}
                   >
-                    {m.displayName}
+                    <NameTag
+                      displayName={m.displayName}
+                      title={m.title}
+                      nameEffect={m.nameEffect}
+                      titleClassName="text-[7px] px-0.5"
+                    />
                     {m.role !== "player" ? " ★" : ""}
                   </button>
                   <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2, fontFamily: "var(--font-body)", fontSize: 19, color: "#dcd4f5", lineHeight: 1.25, overflowWrap: "anywhere" }}>

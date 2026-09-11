@@ -99,6 +99,9 @@ func (s *Server) authIdentity(r *http.Request) (*ws.Identity, bool) {
 		Status:        su.Status,
 		AvatarPreset:  su.AvatarPreset,
 		AvatarVersion: su.AvatarVersion,
+		Title:         su.Title,
+		NameEffect:    su.NameEffect,
+		CardSkin:      su.CardSkin,
 	}, true
 }
 

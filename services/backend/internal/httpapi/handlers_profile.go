@@ -180,7 +180,7 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 	su2.SessionID = su.SessionID
 	su2.Subject = su.Subject
 
-	s.publishProfileEvent(su.UserID, su2.DisplayName, su2.AvatarPreset, su2.AvatarVersion)
+	s.publishProfileEvent(su.UserID, su2.DisplayName, su2.AvatarPreset, su2.AvatarVersion, su2.Title, su2.NameEffect, su2.CardSkin)
 	s.kcAdmin.PushProfileAsync(su.Subject, su2.DisplayName, su2.AvatarPreset, su2.AvatarVersion)
 	s.writeMe(w, r, su2)
 }
@@ -247,7 +247,7 @@ func (s *Server) handlePutAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.auditProfile(ctx, su.UserID, "profile.avatar", map[string]any{"upload_sha256": hex.EncodeToString(sum[:])})
-	s.publishProfileEvent(su.UserID, user.DisplayName, user.AvatarPreset.String, user.AvatarVersion)
+	s.publishProfileEvent(su.UserID, user.DisplayName, user.AvatarPreset.String, user.AvatarVersion, user.Title, user.NameEffect, user.CardSkin)
 	s.kcAdmin.PushProfileAsync(su.Subject, user.DisplayName, user.AvatarPreset.String, user.AvatarVersion)
 	writeJSON(w, http.StatusOK, map[string]any{"avatarVersion": version})
 }
@@ -305,7 +305,7 @@ func (s *Server) handleDeleteAvatar(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", "internal server error")
 		return
 	}
-	s.publishProfileEvent(su.UserID, su.DisplayName, "", su.AvatarVersion+1)
+	s.publishProfileEvent(su.UserID, su.DisplayName, "", su.AvatarVersion+1, su.Title, su.NameEffect, su.CardSkin)
 	s.kcAdmin.PushProfileAsync(su.Subject, su.DisplayName, "", su.AvatarVersion+1)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -364,6 +364,12 @@ func (s *Server) handleUserPublicProfile(w http.ResponseWriter, r *http.Request)
 		"avatarVersion": row.AvatarVersion,
 		"role":          row.Role,
 		"createdAt":     row.CreatedAt,
+		"title":         row.Title,
+		"nameEffect":    row.NameEffect,
+		"cardSkin":      row.CardSkin,
+		"avatarFrame":   row.AvatarFrame,
+		"plinkoBall":    row.PlinkoBall,
+		"profileTheme":  row.ProfileTheme,
 		"stats":         stats,
 	})
 }

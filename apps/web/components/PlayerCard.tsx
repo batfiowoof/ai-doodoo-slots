@@ -7,6 +7,8 @@
 import { useState } from "react";
 import NeonDialog from "./NeonDialog";
 import { Avatar } from "./Avatar";
+import NameTag from "./NameTag";
+import { FRAMES, themeClass } from "@/lib/cosmetics";
 import { fmtCredits, usePlayerProfile } from "@/lib/social";
 import { sound } from "@/lib/sound";
 
@@ -56,16 +58,21 @@ export default function PlayerCard({
         </span>
       ) : (
         <div style={{ padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <Avatar
-              userId={p.id}
-              displayName={p.displayName}
-              avatarPreset={p.avatarPreset}
-              avatarVersion={p.avatarVersion}
-              size={72}
-              ring={ACCENT}
-              glow
-            />
+          <div
+            style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 12px", border: "1px solid #241640" }}
+            className={themeClass(p.profileTheme)}
+          >
+            <span className={`inline-block rounded-full ${p.avatarFrame ? FRAMES[p.avatarFrame]?.className ?? "" : ""}`}>
+              <Avatar
+                userId={p.id}
+                displayName={p.displayName}
+                avatarPreset={p.avatarPreset}
+                avatarVersion={p.avatarVersion}
+                size={72}
+                ring={ACCENT}
+                glow
+              />
+            </span>
             <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
               <span
                 style={{
@@ -78,7 +85,7 @@ export default function PlayerCard({
                   whiteSpace: "nowrap",
                 }}
               >
-                {p.displayName}
+                <NameTag displayName={p.displayName} title={p.title} nameEffect={p.nameEffect} titleClassName="text-[8px] px-1" />
                 {p.role !== "player" ? <span style={{ color: "#ffb15c" }}> ★</span> : ""}
               </span>
               <span style={{ fontFamily: "var(--font-body)", fontSize: 17, color: "#8878b8" }}>

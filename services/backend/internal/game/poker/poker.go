@@ -70,6 +70,9 @@ type Seat struct {
 	DisplayName string `json:"displayName"`
 	State       string `json:"state"`
 	Stack       int64  `json:"stack"`
+	// CardSkin is the occupant's equipped shop card skin ("" = classic);
+	// everyone at the table renders this seat's cards with it.
+	CardSkin string `json:"cardSkin,omitempty"`
 
 	// Per-hand fields (reset by StartHand).
 	Cards      string `json:"cards"` // hole cards as codes; masked in views
@@ -793,7 +796,7 @@ func (st *State) CashOut(userID int64) (int64, error) {
 	chips := s.Stack + s.Rebuy
 	s.Stack, s.Rebuy = 0, 0
 	s.State = SeatEmpty
-	s.UserID, s.DisplayName = 0, ""
+	s.UserID, s.DisplayName, s.CardSkin = 0, "", ""
 	s.Folded, s.AllIn, s.LeaveNext = false, false, false
 	s.Cards, s.LastAction = "", ""
 	return chips, nil

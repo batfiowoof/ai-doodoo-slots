@@ -72,6 +72,8 @@ func (s *Server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 		displayName   string
 		avatarPreset  string
 		avatarVersion int64
+		title         string
+		nameEffect    string
 		value         int64
 	}
 	var rows []entry
@@ -84,7 +86,7 @@ func (s *Server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, x := range raw {
-			rows = append(rows, entry{x.UserID, x.DisplayName, x.AvatarPreset.String, x.AvatarVersion, x.Value})
+			rows = append(rows, entry{x.UserID, x.DisplayName, x.AvatarPreset.String, x.AvatarVersion, x.Title, x.NameEffect, x.Value})
 		}
 	case "net_profit":
 		raw, err := q.LeaderboardNetProfit(r.Context(), span)
@@ -94,7 +96,7 @@ func (s *Server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, x := range raw {
-			rows = append(rows, entry{x.UserID, x.DisplayName, x.AvatarPreset.String, x.AvatarVersion, x.Value})
+			rows = append(rows, entry{x.UserID, x.DisplayName, x.AvatarPreset.String, x.AvatarVersion, x.Title, x.NameEffect, x.Value})
 		}
 	case "wagered":
 		raw, err := q.LeaderboardWagered(r.Context(), span)
@@ -104,7 +106,7 @@ func (s *Server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, x := range raw {
-			rows = append(rows, entry{x.UserID, x.DisplayName, x.AvatarPreset.String, x.AvatarVersion, x.Value})
+			rows = append(rows, entry{x.UserID, x.DisplayName, x.AvatarPreset.String, x.AvatarVersion, x.Title, x.NameEffect, x.Value})
 		}
 	default:
 		writeError(w, http.StatusBadRequest, "bad_request", "metric must be biggest_win, net_profit or wagered")
@@ -121,6 +123,8 @@ func (s *Server) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
 			"displayName":   x.displayName,
 			"avatarPreset":  x.avatarPreset,
 			"avatarVersion": x.avatarVersion,
+			"title":         x.title,
+			"nameEffect":    x.nameEffect,
 			"value":         x.value,
 		})
 	}

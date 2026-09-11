@@ -19,6 +19,13 @@ type userDTO struct {
 	// cache-busts /users/{id}/avatar and signals an uploaded image when > 0.
 	AvatarPreset  string `json:"avatarPreset"`
 	AvatarVersion int64  `json:"avatarVersion"`
+	// Equipped cosmetics ("" = none). item ids from the shop catalog.
+	Title        string `json:"title"`
+	NameEffect   string `json:"nameEffect"`
+	CardSkin     string `json:"cardSkin"`
+	AvatarFrame  string `json:"avatarFrame"`
+	PlinkoBall   string `json:"plinkoBall"`
+	ProfileTheme string `json:"profileTheme"`
 }
 
 func toUserDTO(u *auth.SessionUser) userDTO {
@@ -33,6 +40,12 @@ func toUserDTO(u *auth.SessionUser) userDTO {
 		CreatedAt:     u.CreatedAt,
 		AvatarPreset:  u.AvatarPreset,
 		AvatarVersion: u.AvatarVersion,
+		Title:         u.Title,
+		NameEffect:    u.NameEffect,
+		CardSkin:      u.CardSkin,
+		AvatarFrame:   u.AvatarFrame,
+		PlinkoBall:    u.PlinkoBall,
+		ProfileTheme:  u.ProfileTheme,
 	}
 }
 

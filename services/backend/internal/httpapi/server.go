@@ -25,6 +25,7 @@ import (
 	"github.com/ai-doodoo-slots/services/backend/internal/mines"
 	"github.com/ai-doodoo-slots/services/backend/internal/play"
 	"github.com/ai-doodoo-slots/services/backend/internal/recs"
+	"github.com/ai-doodoo-slots/services/backend/internal/shop"
 	"github.com/ai-doodoo-slots/services/backend/internal/theme"
 	"github.com/ai-doodoo-slots/services/backend/internal/wallet"
 	"github.com/ai-doodoo-slots/services/backend/internal/ws"
@@ -42,6 +43,8 @@ type Server struct {
 	registry     *game.Registry
 	play         *play.Service
 	playLimiter  *rateLimiter
+	shop         *shop.Service
+	shopLimiter  *rateLimiter
 	authLimiter  *rateLimiter
 	hand         *hand.Service  // blackjack deal/action flow; nil-safe routes
 	mines        *mines.Service // stateful mines rounds; nil-safe routes
@@ -154,6 +157,8 @@ func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieS
 		registry:     registry,
 		play:         play.NewService(pool, registry),
 		playLimiter:  newRateLimiter(clk, playWindow, playMax),
+		shop:         shop.NewService(pool),
+		shopLimiter:  newRateLimiter(clk, shopWindow, shopMax),
 		authLimiter:  newRateLimiter(clk, time.Minute, 30),
 		hand:         hand.NewService(pool, bjEngine, clk),
 		mines:        mines.NewService(pool, clk),
@@ -223,6 +228,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/events", s.handlePlayerEvents)
 	mux.HandleFunc("PATCH /api/v1/me/preferences", s.handleUpdatePreferences)
 	mux.HandleFunc("GET /api/v1/rooms/{slug}", s.handleRoomDetail)
+	mux.HandleFunc("GET /api/v1/shop/items", s.handleShopItems)
+	mux.HandleFunc("GET /api/v1/shop/inventory", s.handleShopInventory)
+	mux.HandleFunc("POST /api/v1/shop/purchase", s.handleShopPurchase)
+	mux.HandleFunc("PATCH /api/v1/me/cosmetics", s.handleUpdateCosmetics)
 	mux.HandleFunc("GET /api/v1/chat/messages", s.handleChatHistory)
 	mux.HandleFunc("GET /api/v1/leaderboard", s.handleLeaderboard)
 	if s.hub != nil {

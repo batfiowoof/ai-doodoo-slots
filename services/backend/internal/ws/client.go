@@ -38,6 +38,39 @@ const (
 	emoteCooldown = 400 * time.Millisecond
 )
 
+// identity snapshots the connection identity. The hub patches identities on
+// profile_updated events, so readers copy under the client lock instead of
+// racing the writer.
+func (c *Client) identity() Identity {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.id
+}
+
+// patchIdentity applies the present fields of a profile_updated payload.
+func (c *Client) patchIdentity(p profilePatch) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if p.DisplayName != nil {
+		c.id.DisplayName = *p.DisplayName
+	}
+	if p.AvatarPreset != nil {
+		c.id.AvatarPreset = *p.AvatarPreset
+	}
+	if p.AvatarVersion != nil {
+		c.id.AvatarVersion = *p.AvatarVersion
+	}
+	if p.Title != nil {
+		c.id.Title = *p.Title
+	}
+	if p.NameEffect != nil {
+		c.id.NameEffect = *p.NameEffect
+	}
+	if p.CardSkin != nil {
+		c.id.CardSkin = *p.CardSkin
+	}
+}
+
 // sendJSON queues a message; drops silently (and schedules teardown) when
 // the connection is closed or the buffer is full.
 func (c *Client) sendJSON(m Message) {
@@ -283,7 +316,7 @@ func (c *Client) socialError(code string) {
 // socialGate is the shared pre-flight for every social message: an active
 // account, a wired handler, and a per-connection cooldown floor.
 func (c *Client) socialGate(cooldown time.Duration, last *time.Time) (SocialHandler, bool) {
-	if c.id.Status != "active" {
+	if c.identity().Status != "active" {
 		c.socialError("status_forbids_social")
 		return nil, false
 	}
@@ -334,7 +367,7 @@ func (c *Client) handleSocialChat(payload json.RawMessage) {
 	if !ok {
 		return
 	}
-	msg, err := h.SendChat(c.id, body)
+	msg, err := h.SendChat(c.identity(), body)
 	if err != nil {
 		c.socialFail(err)
 		return
@@ -360,7 +393,7 @@ func (c *Client) handleSocialEmote(payload json.RawMessage) {
 	if !ok {
 		return
 	}
-	msg, err := h.SendEmote(c.id, p.EmoteID)
+	msg, err := h.SendEmote(c.identity(), p.EmoteID)
 	if err != nil {
 		c.socialFail(err)
 		return
@@ -382,7 +415,7 @@ func (c *Client) handleSocialTip(payload json.RawMessage) {
 	if !ok {
 		return
 	}
-	tip, chat, err := h.SendTip(c.id, p.ToUserID, p.Credits)
+	tip, chat, err := h.SendTip(c.identity(), p.ToUserID, p.Credits)
 	if err != nil {
 		c.socialFail(err)
 		return
@@ -406,12 +439,13 @@ func (c *Client) handleSocialRain(payload json.RawMessage) {
 	if !ok {
 		return
 	}
-	recipients := c.hub.OnlineUserIDs(c.id.UserID)
+	id := c.identity()
+	recipients := c.hub.OnlineUserIDs(id.UserID)
 	if len(recipients) == 0 {
 		c.socialError("no_recipients")
 		return
 	}
-	rain, chat, err := h.Rain(c.id, p.Credits, recipients)
+	rain, chat, err := h.Rain(id, p.Credits, recipients)
 	if err != nil {
 		c.socialFail(err)
 		return
@@ -436,11 +470,11 @@ func (c *Client) handleSocialDelete(payload json.RawMessage) {
 		c.socialError("social_unavailable")
 		return
 	}
-	if !c.id.IsStaff() {
+	if !c.identity().IsStaff() {
 		c.socialError("forbidden")
 		return
 	}
-	msg, err := h.DeleteChatMessage(c.id, p.MessageID)
+	msg, err := h.DeleteChatMessage(c.identity(), p.MessageID)
 	if err != nil {
 		c.socialFail(err)
 		return
@@ -466,11 +500,11 @@ func (c *Client) handleSocialMute(payload json.RawMessage) {
 		c.socialError("social_unavailable")
 		return
 	}
-	if !c.id.IsStaff() {
+	if !c.identity().IsStaff() {
 		c.socialError("forbidden")
 		return
 	}
-	if err := h.MuteUser(c.id, p.UserID, p.Minutes, p.Reason); err != nil {
+	if err := h.MuteUser(c.identity(), p.UserID, p.Minutes, p.Reason); err != nil {
 		c.socialFail(err)
 		return
 	}
@@ -501,8 +535,8 @@ func validEmoteID(id string) bool {
 // response payload is authoritative state from the server.
 func (c *Client) handleGameAction(payload json.RawMessage) {
 	// Per-message authorization: a connection authenticated before a ban
-	// must not move money.
-	if c.id.Status != "active" {
+	// must not reach money.
+	if c.identity().Status != "active" {
 		c.sendJSON(Message{Type: "error", Payload: json.RawMessage(`{"code":"status_forbids_betting"}`)})
 		return
 	}
@@ -524,7 +558,7 @@ func (c *Client) handleGameAction(payload json.RawMessage) {
 		c.sendJSON(Message{Type: "error", Payload: json.RawMessage(`{"code":"no_game_in_room"}`)})
 		return
 	}
-	resp, err := h.HandleGameAction(c.id, payload)
+	resp, err := h.HandleGameAction(c.identity(), payload)
 	if err != nil {
 		code := "action_rejected"
 		if ce, ok := err.(interface{ Code() string }); ok {
@@ -550,7 +584,7 @@ func (c *Client) handleBet(kind string, payload json.RawMessage) {
 	}
 	// Per-message authorization: a connection authenticated before a ban
 	// must not bet.
-	if c.id.Status != "active" {
+	if c.identity().Status != "active" {
 		c.sendJSON(Message{Type: "error", Payload: json.RawMessage(`{"code":"status_forbids_betting"}`)})
 		return
 	}
@@ -563,7 +597,7 @@ func (c *Client) handleBet(kind string, payload json.RawMessage) {
 
 	// Room-scoped routing: the wire verb rides in as the action.
 	if rh := c.hub.RoomHandlerFor(room); rh != nil {
-		resp, err := rh.HandleGameAction(c.id, injectAction(payload, kind))
+		resp, err := rh.HandleGameAction(c.identity(), injectAction(payload, kind))
 		if err != nil {
 			code := "bet_rejected"
 			if ce, ok := err.(interface{ Code() string }); ok {
@@ -580,6 +614,7 @@ func (c *Client) handleBet(kind string, payload json.RawMessage) {
 
 	var resp map[string]any
 	var err error
+	id := c.identity()
 	switch kind {
 	case "place_bet":
 		var p struct {
@@ -592,9 +627,9 @@ func (c *Client) handleBet(kind string, payload json.RawMessage) {
 			return
 		}
 		hundredths := int64(p.AutoCashout * 100) // server rounds the target
-		resp, err = h.PlaceBet(c.id, p.Credits, hundredths, p.IdempotencyKey)
+		resp, err = h.PlaceBet(id, p.Credits, hundredths, p.IdempotencyKey)
 	case "cash_out":
-		resp, err = h.CashOut(c.id)
+		resp, err = h.CashOut(id)
 	}
 	if err != nil {
 		code := "bet_rejected"

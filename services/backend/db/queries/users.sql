@@ -3,19 +3,22 @@ INSERT INTO users (display_name, is_guest)
 VALUES ($1, true)
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
           email_verified_at, role, status, status_until,
-          avatar_preset, avatar_version, display_name_updated_at;
+          avatar_preset, avatar_version, display_name_updated_at,
+          title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme;
 
 -- name: GetUserByID :one
 SELECT id, created_at, is_guest, display_name, email, password_hash,
        email_verified_at, role, status, status_until,
-       avatar_preset, avatar_version, display_name_updated_at
+       avatar_preset, avatar_version, display_name_updated_at,
+       title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme
 FROM users
 WHERE id = $1;
 
 -- name: GetUserByEmail :one
 SELECT id, created_at, is_guest, display_name, email, password_hash,
        email_verified_at, role, status, status_until,
-       avatar_preset, avatar_version, display_name_updated_at
+       avatar_preset, avatar_version, display_name_updated_at,
+       title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme
 FROM users
 WHERE email = $1;
 
@@ -24,7 +27,8 @@ INSERT INTO users (display_name, email, password_hash, is_guest)
 VALUES ($1, $2, $3, false)
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
           email_verified_at, role, status, status_until,
-          avatar_preset, avatar_version, display_name_updated_at;
+          avatar_preset, avatar_version, display_name_updated_at,
+          title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme;
 
 -- name: UpgradeGuestUser :one
 -- Guest upgrade in place: the same row keeps its wallet, bets, and seeds.
@@ -33,7 +37,8 @@ SET email = $2, password_hash = $3, is_guest = false
 WHERE id = $1 AND is_guest = true
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
           email_verified_at, role, status, status_until,
-          avatar_preset, avatar_version, display_name_updated_at;
+          avatar_preset, avatar_version, display_name_updated_at,
+          title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme;
 
 -- name: UpdateUserEmailVerified :exec
 UPDATE users SET email_verified_at = now() WHERE id = $1;
@@ -47,7 +52,8 @@ SET display_name = $2, display_name_updated_at = now()
 WHERE id = $1
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
           email_verified_at, role, status, status_until,
-          avatar_preset, avatar_version, display_name_updated_at;
+          avatar_preset, avatar_version, display_name_updated_at,
+          title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme;
 
 -- name: DisplayNameTaken :one
 -- Case-insensitive uniqueness check; ownership excluded by caller id.
@@ -73,9 +79,28 @@ SET avatar_preset = NULL, avatar_version = avatar_version + 1
 WHERE id = $1;
 
 -- name: GetUserPublicProfile :one
-SELECT id, display_name, avatar_preset, avatar_version, role, created_at
+SELECT id, display_name, avatar_preset, avatar_version, role, created_at,
+       title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme
 FROM users
 WHERE id = $1;
+
+-- name: SetTitle :execrows
+UPDATE users SET title = $2 WHERE id = $1;
+
+-- name: SetNameEffect :execrows
+UPDATE users SET name_effect = $2 WHERE id = $1;
+
+-- name: SetCardSkin :execrows
+UPDATE users SET card_skin = $2 WHERE id = $1;
+
+-- name: SetAvatarFrame :execrows
+UPDATE users SET avatar_frame = $2 WHERE id = $1;
+
+-- name: SetPlinkoBall :execrows
+UPDATE users SET plinko_ball = $2 WHERE id = $1;
+
+-- name: SetProfileTheme :execrows
+UPDATE users SET profile_theme = $2 WHERE id = $1;
 
 -- name: AdminListUsers :many
 -- Search by display name or email substring; empty term lists newest first.

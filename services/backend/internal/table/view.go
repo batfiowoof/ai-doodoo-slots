@@ -29,6 +29,7 @@ func (r *Runner) viewLocked(st *poker.State, userID int64) map[string]any {
 		}
 		seats = append(seats, map[string]any{
 			"seatNo": s.SeatNo, "userId": s.UserID, "displayName": s.DisplayName,
+			"cardSkin": s.CardSkin,
 			"state": s.State, "stack": s.Stack + s.Rebuy, "bet": s.Bet,
 			"totalBet": s.TotalBet, "folded": s.Folded, "allIn": s.AllIn,
 			"lastAction": s.LastAction, "cards": cards,

@@ -51,7 +51,12 @@ func RelayProfileNotifications(ctx context.Context, pool *pgxpool.Pool, h *Hub, 
 			}
 			switch n.Channel {
 			case "profile_events":
-				h.BroadcastAll(Message{Type: "profile_updated", Payload: []byte(n.Payload)})
+				// Ride the user topic rather than broadcasting directly: the
+				// hub's user-event path also patches each connection's
+				// Identity (name, avatar, cosmetics) before rebroadcasting,
+				// so chat lines, roster entries, and table buy-ins carry the
+				// CURRENT profile instead of the connect-time one.
+				h.bus.Publish(bus.Event{Topic: TopicUser, Type: "profile_updated", Payload: []byte(n.Payload)})
 			case "social_events":
 				// Replay onto the in-process bus so the hub's wins handler
 				// announces it like any locally settled big win.

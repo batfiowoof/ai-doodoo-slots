@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PlayError, useGames, usePlay, useSession } from "@/lib/api";
 import { sound } from "@/lib/sound";
 import { Ball, PlinkoWorld } from "@/lib/plinkoPhysics";
+import { ballOf } from "@/lib/cosmetics";
 import BetInput from "@/components/BetInput";
 import Backdrop from "@/components/Backdrop";
 
@@ -113,6 +114,9 @@ export default function PlinkoScreen({ gameId }: { gameId: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boardRef = useRef({ rows, risk });
   boardRef.current = { rows, risk };
+  // Equipped puck skin (through a ref: the rAF loop never re-runs).
+  const ballSkinRef = useRef(ballOf(session.data?.user.plinkoBall));
+  ballSkinRef.current = ballOf(session.data?.user.plinkoBall);
   // Server settles instantly at bet time; the displayed balance hides each
   // in-flight payout until its ball lands, so wins count up at the bucket.
   const serverBalance = session.data?.balanceCredits;
@@ -256,6 +260,7 @@ export default function PlinkoScreen({ gameId }: { gameId: string }) {
       }
 
       // falling balls — comet trail, velocity squash, glow
+      const puck = ballSkinRef.current;
       for (const ball of ballsRef.current) {
         const n = ball.trail.length;
         for (let i = 0; i < n; i++) {
@@ -264,7 +269,7 @@ export default function PlinkoScreen({ gameId }: { gameId: string }) {
           ctx.globalAlpha = f * f * 0.3;
           ctx.beginPath();
           ctx.arc(p.x, p.y, geo.ballR * (0.25 + 0.6 * f), 0, Math.PI * 2);
-          ctx.fillStyle = "#ffd21f";
+          ctx.fillStyle = puck.body;
           ctx.fill();
         }
         ctx.globalAlpha = ball.alpha;
@@ -277,11 +282,11 @@ export default function PlinkoScreen({ gameId }: { gameId: string }) {
         ctx.beginPath();
         ctx.arc(0, 0, geo.ballR, 0, Math.PI * 2);
         const grad = ctx.createRadialGradient(-2, -2.5, 1, 0, 0, geo.ballR);
-        grad.addColorStop(0, "#fff6c9");
-        grad.addColorStop(0.55, "#ffd21f");
-        grad.addColorStop(1, "#f0a51f");
+        grad.addColorStop(0, puck.shine);
+        grad.addColorStop(0.55, puck.body);
+        grad.addColorStop(1, puck.glow);
         ctx.fillStyle = grad;
-        ctx.shadowColor = ACCENT;
+        ctx.shadowColor = puck.glow;
         ctx.shadowBlur = 16;
         ctx.fill();
         ctx.restore();

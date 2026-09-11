@@ -7,17 +7,20 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import ChatPanel from "./ChatPanel";
 import EmoteWheel from "./EmoteWheel";
 import LeaderboardDialog from "./LeaderboardDialog";
 import PlayerCard from "./PlayerCard";
+import NameTag from "./NameTag";
 import { Avatar } from "./Avatar";
 import { pixelClip } from "./Pixel";
 import { useSession } from "@/lib/api";
 import { useCasinoSocket, type CasinoEnvelope } from "@/lib/useCasinoSocket";
 import { useChatHistory } from "@/lib/social";
 import { emoteVisual } from "@/lib/emotes";
+import { nameEffectClass } from "@/lib/cosmetics";
 import { sound } from "@/lib/sound";
 import type { ChatMessage } from "@/lib/types";
 
@@ -26,12 +29,16 @@ interface EmoteEvt {
   displayName: string;
   avatarPreset: string;
   avatarVersion: number;
+  title?: string;
+  nameEffect?: string;
   emoteId: string;
 }
 
 interface BigWinEvt {
   userId: number;
   displayName: string;
+  title?: string;
+  nameEffect?: string;
   gameId: string;
   betCredits: number;
   payoutCredits: number;
@@ -60,6 +67,8 @@ interface RosterEntry {
   avatarPreset: string;
   avatarVersion: number;
   role: string;
+  title?: string;
+  nameEffect?: string;
   room: string;
 }
 
@@ -67,6 +76,7 @@ interface FloatEmote {
   key: number;
   emoteId: string;
   name: string;
+  nameEffect?: string;
   mine: boolean;
   drift: number;
 }
@@ -87,6 +97,7 @@ function roomLabel(slug: string): string {
 export default function SocialDock() {
   const session = useSession();
   const qc = useQueryClient();
+  const router = useRouter();
   const me = session.data ?? null;
 
   const [chatOpen, setChatOpen] = useState(false);
@@ -168,7 +179,7 @@ export default function SocialDock() {
         const key = keySeq++;
         setFloats((f) => [
           ...f.slice(-11),
-          { key, emoteId: e.emoteId, name: e.displayName, mine, drift: Math.round(Math.random() * 120 - 40) },
+          { key, emoteId: e.emoteId, name: e.displayName, nameEffect: e.nameEffect, mine, drift: Math.round(Math.random() * 120 - 40) },
         ]);
         window.setTimeout(() => setFloats((f) => f.filter((x) => x.key !== key)), 3800);
         if (!mine) popThrottled();
@@ -269,6 +280,11 @@ export default function SocialDock() {
           sound.leaderboardOpen();
           setBoardOpen(true);
         }} title="The floor's finest" />
+        <DockChip icon="🛒" label="VAULT" accent="#ffd21f" onClick={() => {
+          sound.unlock();
+          sound.click();
+          router.push("/shop");
+        }} title="The Vault — cosmetics shop" />
         <DockChip icon="🎉" label="EMOTE" accent="#22e8ff" active={wheelOpen} onClick={() => {
           sound.unlock();
           sound.click();
@@ -385,7 +401,12 @@ export default function SocialDock() {
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {r.displayName}
+                  <NameTag
+                    displayName={r.displayName}
+                    title={r.title}
+                    nameEffect={r.nameEffect}
+                    titleClassName="text-[7px] px-0.5"
+                  />
                 </button>
                 <span style={{ flex: 1 }} />
                 <span style={{ fontFamily: "var(--font-display)", fontSize: 9, letterSpacing: 1, color: "#5a4a88" }}>
@@ -442,6 +463,8 @@ export default function SocialDock() {
                       border: `1px solid ${f.mine ? "#ff2d9566" : "#22e8ff66"}`,
                       animation: "emoteName 3.6s ease both",
                     }}
+                    className={nameEffectClass(f.nameEffect)}
+                    data-name={f.name}
                   >
                     {f.name}
                   </span>
@@ -510,7 +533,13 @@ export default function SocialDock() {
                   textShadow: "0 0 12px rgba(255,138,31,.9)",
                 }}
               >
-                {banner.displayName} HIT {banner.multiplier.toFixed(2)}× ON {banner.gameId.toUpperCase()}
+                <NameTag
+                  displayName={banner.displayName}
+                  title={banner.title}
+                  nameEffect={banner.nameEffect}
+                  titleClassName="text-[8px] px-1"
+                />{" "}
+                HIT {banner.multiplier.toFixed(2)}× ON {banner.gameId.toUpperCase()}
               </span>
               <span style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "#5fe08a", textShadow: "0 0 12px rgba(95,224,138,.9)" }}>
                 +{banner.payoutCredits.toLocaleString()} CR

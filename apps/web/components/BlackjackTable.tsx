@@ -537,6 +537,7 @@ export default function BlackjackTable() {
                           scale={5}
                           tilt={playerFan(i)}
                           dim={playerLost}
+                          skin={me?.user.cardSkin || undefined}
                           dealFrom="shoe"
                           dealDelay={playerCards.length <= 2 ? 430 + i * 170 : 0}
                         />

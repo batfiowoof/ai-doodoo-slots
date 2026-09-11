@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { EMOTES, emoteVisual } from "@/lib/emotes";
+import { useShopInventory } from "@/lib/api";
 import { PixelPanel, pixelClip } from "./Pixel";
 import { sound } from "@/lib/sound";
 
@@ -24,10 +25,15 @@ export default function EmoteWheel({
   onPick: (emoteId: string) => void;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
+  const inventory = useShopInventory(open);
+  const ownedPacks = new Set((inventory.data?.items ?? []).map((i) => i.itemId));
   if (!open) return null;
 
   const n = EMOTES.length;
   const hoveredEmote = EMOTES.find((e) => e.id === hovered);
+  // Pack emotes are visible but locked until owned; the server rejects
+  // sending them regardless, this is just the honest picker.
+  const locked = (pack: string | undefined) => pack != null && !ownedPacks.has(pack);
 
   return createPortal(
     <>
@@ -51,13 +57,18 @@ export default function EmoteWheel({
           const y = -Math.sin(rad) * radius - CHIP / 2;
           const visual = emoteVisual(emote.id);
           const hot = hovered === emote.id;
+          const isLocked = locked(emote.pack);
           return (
             <button
               key={emote.id}
               type="button"
-              title={`${emote.label} — :${emote.id}:`}
+              title={isLocked ? `${emote.label} — unlock in THE VAULT` : `${emote.label} — :${emote.id}:`}
               onClick={() => {
                 sound.unlock();
+                if (isLocked) {
+                  sound.error();
+                  return;
+                }
                 sound.emotePop();
                 onPick(emote.id);
               }}
@@ -73,13 +84,14 @@ export default function EmoteWheel({
                 border: "none",
                 padding: 0,
                 background: "none",
-                cursor: "pointer",
+                cursor: isLocked ? "not-allowed" : "pointer",
                 zIndex: hot ? 9 : 1,
                 transform: hot ? "scale(1.45)" : "scale(1)",
                 transition: "transform .1s cubic-bezier(.2,1.4,.4,1), filter .12s ease",
                 filter: hot
                   ? "drop-shadow(0 0 22px rgba(255,210,31,.95))"
                   : "drop-shadow(0 0 8px rgba(255,45,149,.45))",
+                opacity: isLocked ? 0.45 : 1,
               }}
             >
               {/* pixel chip: accent frame + dark stepped core */}
@@ -94,6 +106,7 @@ export default function EmoteWheel({
               >
                 <span
                   style={{
+                    position: "relative",
                     display: "grid",
                     placeItems: "center",
                     width: CHIP - 6,
@@ -108,6 +121,9 @@ export default function EmoteWheel({
                     <img src={visual.src} width={CHIP - 18} height={CHIP - 18} className="pixelated" alt={emote.label} />
                   ) : (
                     <span>{visual?.emoji ?? "?"}</span>
+                  )}
+                  {isLocked && (
+                    <span style={{ position: "absolute", fontSize: 12, right: 2, bottom: 2 }}>🔒</span>
                   )}
                 </span>
               </span>
@@ -154,6 +170,11 @@ export default function EmoteWheel({
               <span style={{ fontFamily: "var(--font-body)", fontSize: 15, color: "#8878b8" }}>
                 :{hoveredEmote.id}:
               </span>
+              {locked(hoveredEmote.pack) && (
+                <span style={{ fontFamily: "var(--font-display)", fontSize: 11, letterSpacing: 2, color: "#ff2d95" }}>
+                  🔒 VAULT-LOCKED
+                </span>
+              )}
             </span>
           </PixelPanel>
         </div>

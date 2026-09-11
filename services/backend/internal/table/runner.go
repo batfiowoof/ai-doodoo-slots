@@ -34,9 +34,10 @@ func DefaultConfig() Config {
 // channel (buffered) carries the authoritative ack; the runner never blocks
 // on it.
 type request struct {
-	userID int64
-	name   string
-	kind   string // buy_in | rebuy | leave | act | state
+	userID   int64
+	name     string
+	cardSkin string // equipped shop card skin, applied to the seat at buy-in
+	kind     string // buy_in | rebuy | leave | act | state
 	action string // poker action for kind == "act"
 	amount int64
 	seatNo int
@@ -452,6 +453,7 @@ func (r *Runner) handleBuyIn(ctx context.Context, req request) {
 	stack := int64(0)
 	if s := st.SeatOf(req.userID); s != nil {
 		stack = s.Stack + s.Rebuy
+		s.CardSkin = req.cardSkin // refresh in case the skin changed since sit
 	}
 	// A hand can start as soon as two stacks exist.
 	if st.Phase == poker.PhaseWaiting && r.nextHandAt.IsZero() {

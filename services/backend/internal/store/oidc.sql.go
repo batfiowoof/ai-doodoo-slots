@@ -15,7 +15,8 @@ INSERT INTO users (display_name, email, email_verified_at, is_guest)
 VALUES ($1, $2, $3, false)
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
           email_verified_at, role, status, status_until,
-          avatar_preset, avatar_version, display_name_updated_at
+          avatar_preset, avatar_version, display_name_updated_at,
+          title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme
 `
 
 type CreateUserFromKeycloakParams struct {
@@ -41,6 +42,12 @@ func (q *Queries) CreateUserFromKeycloak(ctx context.Context, arg CreateUserFrom
 		&i.AvatarPreset,
 		&i.AvatarVersion,
 		&i.DisplayNameUpdatedAt,
+		&i.Title,
+		&i.NameEffect,
+		&i.CardSkin,
+		&i.AvatarFrame,
+		&i.PlinkoBall,
+		&i.ProfileTheme,
 	)
 	return i, err
 }
@@ -89,7 +96,8 @@ SET display_name      = COALESCE(NULLIF($2::text, ''), display_name),
 WHERE id = $1 AND is_guest = true
 RETURNING id, created_at, is_guest, display_name, email, password_hash,
           email_verified_at, role, status, status_until,
-          avatar_preset, avatar_version, display_name_updated_at
+          avatar_preset, avatar_version, display_name_updated_at,
+          title, name_effect, card_skin, avatar_frame, plinko_ball, profile_theme
 `
 
 type UpgradeGuestForKeycloakParams struct {
@@ -122,6 +130,12 @@ func (q *Queries) UpgradeGuestForKeycloak(ctx context.Context, arg UpgradeGuestF
 		&i.AvatarPreset,
 		&i.AvatarVersion,
 		&i.DisplayNameUpdatedAt,
+		&i.Title,
+		&i.NameEffect,
+		&i.CardSkin,
+		&i.AvatarFrame,
+		&i.PlinkoBall,
+		&i.ProfileTheme,
 	)
 	return i, err
 }

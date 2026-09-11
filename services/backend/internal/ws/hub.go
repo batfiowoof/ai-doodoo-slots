@@ -264,7 +264,7 @@ func (h *Hub) handleSessionEvent(ev bus.Event) {
 	h.mu.RLock()
 	var targets []*Client
 	for c := range h.clients {
-		if c.id.UserID == p.UserID && (p.SessionID == 0 || c.id.SessionID == p.SessionID) {
+		if id := c.identity(); id.UserID == p.UserID && (p.SessionID == 0 || id.SessionID == p.SessionID) {
 			targets = append(targets, c)
 		}
 	}
@@ -275,11 +275,40 @@ func (h *Hub) handleSessionEvent(ev bus.Event) {
 	}
 }
 
+// profilePatch is the identity-refreshing slice of a profile_updated event.
+// Present fields overwrite the connection identity, so chat lines, roster
+// entries, and poker buy-ins broadcast the CURRENT profile — cosmetics
+// equipped mid-session appear live, no reconnect needed.
+type profilePatch struct {
+	UserID        int64   `json:"userId"`
+	DisplayName   *string `json:"displayName"`
+	AvatarPreset  *string `json:"avatarPreset"`
+	AvatarVersion *int64  `json:"avatarVersion"`
+	Title         *string `json:"title"`
+	NameEffect    *string `json:"nameEffect"`
+	CardSkin      *string `json:"cardSkin"`
+}
+
 // handleUserEvent dispatches user-scoped bus events. Status changes drop the
-// account's sockets; profile changes fan out to everyone so live rooms see
-// renames and avatar swaps immediately.
+// account's sockets; profile changes refresh the connection identity and fan
+// out to everyone so live rooms see renames, avatar swaps, and equipped
+// cosmetics immediately.
 func (h *Hub) handleUserEvent(ev bus.Event) {
 	if ev.Type == "profile_updated" {
+		var p profilePatch
+		if json.Unmarshal(ev.Payload, &p) == nil && p.UserID != 0 {
+			h.mu.RLock()
+			var targets []*Client
+			for c := range h.clients {
+				if c.identity().UserID == p.UserID {
+					targets = append(targets, c)
+				}
+			}
+			h.mu.RUnlock()
+			for _, c := range targets {
+				c.patchIdentity(p)
+			}
+		}
 		h.BroadcastAll(Message{Type: "profile_updated", Payload: ev.Payload})
 		return
 	}
@@ -296,7 +325,7 @@ func (h *Hub) handleUserEvent(ev bus.Event) {
 	h.mu.RLock()
 	var targets []*Client
 	for c := range h.clients {
-		if c.id.UserID == p.UserID {
+		if c.identity().UserID == p.UserID {
 			targets = append(targets, c)
 		}
 	}
@@ -318,8 +347,8 @@ func (h *Hub) presence() (map[string]int, int, []map[string]any) {
 	for slug, room := range h.rooms {
 		seen := make(map[int64]bool, len(room))
 		for c := range room {
-			if !seen[c.id.UserID] {
-				seen[c.id.UserID] = true
+			if uid := c.identity().UserID; !seen[uid] {
+				seen[uid] = true
 				roomCounts[slug]++
 			}
 		}
@@ -328,10 +357,11 @@ func (h *Hub) presence() (map[string]int, int, []map[string]any) {
 	lobby := 0
 	roster := make([]map[string]any, 0, len(h.clients))
 	for c := range h.clients {
-		if seen[c.id.UserID] {
+		id := c.identity()
+		if seen[id.UserID] {
 			continue
 		}
-		seen[c.id.UserID] = true
+		seen[id.UserID] = true
 		lobby++
 		room := ""
 		for slug := range c.rooms {
@@ -341,11 +371,13 @@ func (h *Hub) presence() (map[string]int, int, []map[string]any) {
 			}
 		}
 		roster = append(roster, map[string]any{
-			"userId":        c.id.UserID,
-			"displayName":   c.id.DisplayName,
-			"avatarPreset":  c.id.AvatarPreset,
-			"avatarVersion": c.id.AvatarVersion,
-			"role":          c.id.Role,
+			"userId":        id.UserID,
+			"displayName":   id.DisplayName,
+			"avatarPreset":  id.AvatarPreset,
+			"avatarVersion": id.AvatarVersion,
+			"role":          id.Role,
+			"title":         id.Title,
+			"nameEffect":    id.NameEffect,
 			"room":          room,
 		})
 	}
@@ -366,11 +398,12 @@ func (h *Hub) OnlineUserIDs(exclude int64) []int64 {
 	seen := make(map[int64]bool, len(h.clients))
 	out := make([]int64, 0, len(h.clients))
 	for c := range h.clients {
-		if c.id.Status != "active" || c.id.UserID == exclude || seen[c.id.UserID] {
+		id := c.identity()
+		if id.Status != "active" || id.UserID == exclude || seen[id.UserID] {
 			continue
 		}
-		seen[c.id.UserID] = true
-		out = append(out, c.id.UserID)
+		seen[id.UserID] = true
+		out = append(out, id.UserID)
 	}
 	return out
 }

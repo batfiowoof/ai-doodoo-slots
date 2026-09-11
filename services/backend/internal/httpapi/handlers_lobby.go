@@ -116,7 +116,7 @@ func (s *Server) publishStatusEvent(userID int64, status string) {
 // in-process bus covers sockets on this process; the Postgres NOTIFY lets
 // the gameserver (which owns the player sockets) relay the same event —
 // the pre-Redis stand-in for cross-process fan-out.
-func (s *Server) publishProfileEvent(userID int64, displayName string, avatarPreset string, avatarVersion int64) {
+func (s *Server) publishProfileEvent(userID int64, displayName, avatarPreset string, avatarVersion int64, title, nameEffect, cardSkin string) {
 	if s.bus == nil {
 		return
 	}
@@ -125,6 +125,9 @@ func (s *Server) publishProfileEvent(userID int64, displayName string, avatarPre
 		"displayName":   displayName,
 		"avatarPreset":  avatarPreset,
 		"avatarVersion": avatarVersion,
+		"title":         title,
+		"nameEffect":    nameEffect,
+		"cardSkin":      cardSkin,
 	})
 	if err != nil {
 		return

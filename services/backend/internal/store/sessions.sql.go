@@ -53,7 +53,9 @@ const getActiveSessionByTokenHash = `-- name: GetActiveSessionByTokenHash :one
 SELECT s.id AS session_id, s.expires_at, s.last_seen_at,
        u.id AS user_id, u.is_guest, u.display_name, u.email,
        u.email_verified_at, u.role, u.status, u.created_at AS user_created_at,
-       u.avatar_preset, u.avatar_version, u.display_name_updated_at
+       u.avatar_preset, u.avatar_version, u.display_name_updated_at,
+       u.title, u.name_effect, u.card_skin, u.avatar_frame, u.plinko_ball,
+       u.profile_theme
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = $1
@@ -76,6 +78,12 @@ type GetActiveSessionByTokenHashRow struct {
 	AvatarPreset         pgtype.Text
 	AvatarVersion        int64
 	DisplayNameUpdatedAt *time.Time
+	Title                string
+	NameEffect           string
+	CardSkin             string
+	AvatarFrame          string
+	PlinkoBall           string
+	ProfileTheme         string
 }
 
 func (q *Queries) GetActiveSessionByTokenHash(ctx context.Context, tokenHash string) (GetActiveSessionByTokenHashRow, error) {
@@ -96,6 +104,12 @@ func (q *Queries) GetActiveSessionByTokenHash(ctx context.Context, tokenHash str
 		&i.AvatarPreset,
 		&i.AvatarVersion,
 		&i.DisplayNameUpdatedAt,
+		&i.Title,
+		&i.NameEffect,
+		&i.CardSkin,
+		&i.AvatarFrame,
+		&i.PlinkoBall,
+		&i.ProfileTheme,
 	)
 	return i, err
 }

@@ -59,7 +59,8 @@ func (q *Queries) InsertChatMessage(ctx context.Context, arg InsertChatMessagePa
 
 const listRecentChatMessages = `-- name: ListRecentChatMessages :many
 SELECT m.id, m.user_id, m.kind, m.body, m.created_at,
-       u.display_name, u.avatar_preset, u.avatar_version, u.role
+       u.display_name, u.avatar_preset, u.avatar_version, u.role,
+       u.title, u.name_effect
 FROM chat_messages m
 JOIN users u ON u.id = m.user_id
 WHERE m.deleted = false
@@ -77,6 +78,8 @@ type ListRecentChatMessagesRow struct {
 	AvatarPreset  pgtype.Text
 	AvatarVersion int64
 	Role          string
+	Title         string
+	NameEffect    string
 }
 
 // Newest-first slice; the client renders bottom-up. System lines carry the
@@ -100,6 +103,8 @@ func (q *Queries) ListRecentChatMessages(ctx context.Context, limit int32) ([]Li
 			&i.AvatarPreset,
 			&i.AvatarVersion,
 			&i.Role,
+			&i.Title,
+			&i.NameEffect,
 		); err != nil {
 			return nil, err
 		}

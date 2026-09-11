@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ai-doodoo-slots/services/backend/internal/shop"
 	"github.com/ai-doodoo-slots/services/backend/internal/store"
 	"github.com/ai-doodoo-slots/services/backend/internal/wallet"
 	"github.com/ai-doodoo-slots/services/backend/internal/ws"
@@ -43,10 +44,11 @@ func (e codedError) Code() string  { return e.code }
 type Service struct {
 	pool   *pgxpool.Pool
 	logger *slog.Logger
+	shop   *shop.Service // emote-pack entitlement gate
 }
 
 func New(pool *pgxpool.Pool, logger *slog.Logger) *Service {
-	return &Service{pool: pool, logger: logger}
+	return &Service{pool: pool, logger: logger, shop: shop.NewService(pool)}
 }
 
 // uniqueStamp makes ledger idempotency keys unique per social event (these
@@ -72,14 +74,16 @@ func comma(n int64) string {
 }
 
 // ChatPayload is the chat_message broadcast shape for a freshly inserted row.
-func ChatPayload(row store.ChatMessage, displayName, avatarPreset string, avatarVersion int64, role string) map[string]any {
+func ChatPayload(row store.ChatMessage, id ws.Identity) map[string]any {
 	return map[string]any{
 		"id":            row.ID,
 		"userId":        row.UserID,
-		"displayName":   displayName,
-		"avatarPreset":  avatarPreset,
-		"avatarVersion": avatarVersion,
-		"role":          role,
+		"displayName":   id.DisplayName,
+		"avatarPreset":  id.AvatarPreset,
+		"avatarVersion": id.AvatarVersion,
+		"role":          id.Role,
+		"title":         id.Title,
+		"nameEffect":    id.NameEffect,
 		"kind":          row.Kind,
 		"body":          row.Body,
 		"createdAt":     row.CreatedAt,
@@ -95,6 +99,8 @@ func HistoryPayload(row store.ListRecentChatMessagesRow) map[string]any {
 		"avatarPreset":  row.AvatarPreset,
 		"avatarVersion": row.AvatarVersion,
 		"role":          row.Role,
+		"title":         row.Title,
+		"nameEffect":    row.NameEffect,
 		"kind":          row.Kind,
 		"body":          row.Body,
 		"createdAt":     row.CreatedAt,
@@ -135,23 +141,36 @@ func (s *Service) SendChat(id ws.Identity, body string) (map[string]any, error) 
 		s.logger.Error("insert chat", "err", err)
 		return nil, codedError{"internal", "chat not stored"}
 	}
-	return ChatPayload(row, id.DisplayName, id.AvatarPreset, id.AvatarVersion, id.Role), nil
+	return ChatPayload(row, id), nil
 }
 
 // SendEmote broadcasts an ephemeral reaction (nothing persisted). Mutes
-// cover emotes too — spam is spam in any alphabet.
+// cover emotes too — spam is spam in any alphabet. Emote ids gated behind an
+// active shop pack require ownership; everything else (including ids with no
+// art on any client) is free to send.
 func (s *Service) SendEmote(id ws.Identity, emoteID string) (map[string]any, error) {
 	if id.Status != "active" {
 		return nil, codedError{"status_forbids_social", "account not active"}
 	}
-	if err := s.checkMute(context.Background(), id.UserID); err != nil {
+	ctx := context.Background()
+	if err := s.checkMute(ctx, id.UserID); err != nil {
 		return nil, err
+	}
+	entitled, err := s.shop.EmoteEntitled(ctx, id.UserID, emoteID)
+	if err != nil {
+		s.logger.Error("emote entitlement", "err", err)
+		return nil, codedError{"internal", "emote failed"}
+	}
+	if !entitled {
+		return nil, codedError{"emote_locked", "that emote is vault-only"}
 	}
 	return map[string]any{
 		"userId":        id.UserID,
 		"displayName":   id.DisplayName,
 		"avatarPreset":  id.AvatarPreset,
 		"avatarVersion": id.AvatarVersion,
+		"title":         id.Title,
+		"nameEffect":    id.NameEffect,
 		"emoteId":       emoteID,
 	}, nil
 }
@@ -229,7 +248,7 @@ func (s *Service) SendTip(id ws.Identity, toUserID, credits int64) (map[string]a
 		"toUserId": toUserID, "toName": target.DisplayName,
 		"credits": credits,
 	}
-	chat := ChatPayload(row, id.DisplayName, id.AvatarPreset, id.AvatarVersion, id.Role)
+	chat := ChatPayload(row, id)
 	return tip, chat, nil
 }
 
@@ -308,7 +327,7 @@ func (s *Service) Rain(id ws.Identity, totalCredits int64, recipients []int64) (
 		"totalCredits": distributed, "shareCredits": share,
 		"recipientCount": len(recipients),
 	}
-	chat := ChatPayload(row, id.DisplayName, id.AvatarPreset, id.AvatarVersion, id.Role)
+	chat := ChatPayload(row, id)
 	return rain, chat, nil
 }
 
@@ -382,11 +401,21 @@ func (s *Service) AnnounceWin(ev json.RawMessage) (map[string]any, map[string]an
 		"displayName":   prof.DisplayName,
 		"avatarPreset":  prof.AvatarPreset.String,
 		"avatarVersion": prof.AvatarVersion,
+		"title":         prof.Title,
+		"nameEffect":    prof.NameEffect,
 		"gameId":        p.GameID,
 		"betCredits":    p.BetCredits,
 		"payoutCredits": p.PayoutCredits,
 		"multiplier":    p.Multiplier,
 	}
-	chat := ChatPayload(row, prof.DisplayName, prof.AvatarPreset.String, prof.AvatarVersion, prof.Role)
+	chat := ChatPayload(row, ws.Identity{
+		UserID:        prof.ID,
+		DisplayName:   prof.DisplayName,
+		AvatarPreset:  prof.AvatarPreset.String,
+		AvatarVersion: prof.AvatarVersion,
+		Role:          prof.Role,
+		Title:         prof.Title,
+		NameEffect:    prof.NameEffect,
+	})
 	return win, chat, true
 }

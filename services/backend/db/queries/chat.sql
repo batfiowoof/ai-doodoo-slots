@@ -7,7 +7,8 @@ RETURNING id, user_id, kind, body, deleted, created_at;
 -- Newest-first slice; the client renders bottom-up. System lines carry the
 -- acting user (winner, rainmaker, tipper) so the join fills their identity.
 SELECT m.id, m.user_id, m.kind, m.body, m.created_at,
-       u.display_name, u.avatar_preset, u.avatar_version, u.role
+       u.display_name, u.avatar_preset, u.avatar_version, u.role,
+       u.title, u.name_effect
 FROM chat_messages m
 JOIN users u ON u.id = m.user_id
 WHERE m.deleted = false

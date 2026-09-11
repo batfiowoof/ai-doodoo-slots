@@ -552,6 +552,84 @@ export interface paths {
         patch: operations["updatePreferences"];
         trace?: never;
     };
+    "/api/v1/shop/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Active vault catalog */
+        get: operations["getShopItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shop/inventory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's owned shop items */
+        get: operations["getShopInventory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shop/purchase": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Buy one catalog item with credits
+         * @description One wallet transaction: ledger debit (kind shop_purchase) plus the
+         *     inventory grant, idempotency-keyed like a bet. A replayed key returns
+         *     the original result; an already-owned item is never charged twice.
+         */
+        post: operations["purchaseShopItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/cosmetics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Equip or clear cosmetic slots
+         * @description Free, but every slot is validated against the catalog (kind match and
+         *     ownership). Republishes the profile event so other players see the
+         *     change live.
+         */
+        patch: operations["updateCosmetics"];
+        trace?: never;
+    };
     "/api/v1/chat/messages": {
         parameters: {
             query?: never;
@@ -688,6 +766,18 @@ export interface components {
              * @description Bumped on every avatar change; > 0 with empty preset = upload
              */
             avatarVersion?: number;
+            /** @description Equipped shop title item id; empty = none */
+            title?: string;
+            /** @description Equipped shop name-effect item id; empty = none */
+            nameEffect?: string;
+            /** @description Equipped shop card-skin item id; empty = classic */
+            cardSkin?: string;
+            /** @description Equipped shop avatar-frame item id; empty = none */
+            avatarFrame?: string;
+            /** @description Equipped shop plinko-ball item id; empty = classic */
+            plinkoBall?: string;
+            /** @description Equipped shop profile-theme item id; empty = default */
+            profileTheme?: string;
         };
         Me: {
             user: components["schemas"]["User"];
@@ -713,6 +803,12 @@ export interface components {
             role: string;
             /** Format: date-time */
             createdAt: string;
+            title?: string;
+            nameEffect?: string;
+            cardSkin?: string;
+            avatarFrame?: string;
+            plinkoBall?: string;
+            profileTheme?: string;
         };
         ChatMessage: {
             /** Format: int64 */
@@ -724,6 +820,8 @@ export interface components {
             /** Format: int64 */
             avatarVersion: number;
             role: string;
+            title?: string;
+            nameEffect?: string;
             /** @enum {string} */
             kind: "chat" | "system";
             body: string;
@@ -741,6 +839,8 @@ export interface components {
             avatarPreset?: string;
             /** Format: int64 */
             avatarVersion?: number;
+            title?: string;
+            nameEffect?: string;
             /** Format: int64 */
             value: number;
         };
@@ -751,6 +851,51 @@ export interface components {
             window: "daily" | "weekly" | "all";
             entries: components["schemas"]["LeaderboardEntry"][];
             me?: components["schemas"]["LeaderboardEntry"] | null;
+        };
+        ShopItem: {
+            id: string;
+            /** @enum {string} */
+            kind: "title" | "name_effect" | "card_skin" | "avatar_frame" | "plinko_ball" | "profile_theme" | "emote_pack";
+            name: string;
+            blurb?: string;
+            /** Format: int64 */
+            priceCredits: number;
+            /** @enum {string} */
+            rarity: "common" | "rare" | "epic" | "legendary";
+            /** @description Kind-specific extras; emote packs list their emote ids here */
+            payload?: {
+                emotes?: string[];
+            };
+        };
+        ShopCatalog: {
+            items: components["schemas"]["ShopItem"][];
+        };
+        ShopInventory: {
+            items: {
+                itemId: string;
+                /** Format: date-time */
+                acquiredAt: string;
+            }[];
+        };
+        ShopPurchaseRequest: {
+            itemId: string;
+            idempotencyKey: string;
+        };
+        ShopPurchaseResponse: {
+            itemId: string;
+            /** Format: int64 */
+            balanceCredits: number;
+            replay?: boolean;
+            alreadyOwned?: boolean;
+        };
+        /** @description Equip (item id) or clear (empty string) cosmetic slots; omitted slots stay untouched */
+        CosmeticsUpdate: {
+            title?: string;
+            nameEffect?: string;
+            cardSkin?: string;
+            avatarFrame?: string;
+            plinkoBall?: string;
+            profileTheme?: string;
         };
         AdminUserRow: {
             /** Format: int64 */
@@ -1784,6 +1929,106 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
+        };
+    };
+    getShopItems: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Catalog items ordered by kind and price */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShopCatalog"];
+                };
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    getShopInventory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Owned items, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShopInventory"];
+                };
+            };
+            401: components["responses"]["Error"];
+        };
+    };
+    purchaseShopItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShopPurchaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Purchase recorded (or replayed / already owned) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShopPurchaseResponse"];
+                };
+            };
+            401: components["responses"]["Error"];
+            402: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            429: components["responses"]["Error"];
+        };
+    };
+    updateCosmetics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CosmeticsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated me payload */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
         };
     };
     getChatHistory: {

@@ -11,6 +11,10 @@ export type LeaderboardEntry = components["schemas"]["LeaderboardEntry"];
 export type Leaderboard = components["schemas"]["Leaderboard"];
 export type PersonalizedEntry = components["schemas"]["PersonalizedEntry"];
 export type PersonalizedLobby = components["schemas"]["PersonalizedLobby"];
+export type ShopItem = components["schemas"]["ShopItem"];
+export type ShopCatalog = components["schemas"]["ShopCatalog"];
+export type ShopInventory = components["schemas"]["ShopInventory"];
+export type ShopPurchaseResponse = components["schemas"]["ShopPurchaseResponse"];
 
 /** Live profile change broadcast on the room/lobby socket. */
 export interface ProfileUpdatedEvent {
@@ -18,6 +22,9 @@ export interface ProfileUpdatedEvent {
   displayName: string;
   avatarPreset: string;
   avatarVersion: number;
+  title?: string;
+  nameEffect?: string;
+  cardSkin?: string;
 }
 
 /**

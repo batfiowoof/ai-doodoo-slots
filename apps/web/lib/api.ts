@@ -11,6 +11,9 @@ import type {
   Me,
   PersonalizedLobby,
   SessionInfo,
+  ShopCatalog,
+  ShopInventory,
+  ShopPurchaseResponse,
   SlotsOutcome,
   AdminUserRow,
 } from "./types";
@@ -247,6 +250,78 @@ export function useDeleteAvatar() {
         old ? { ...old, user: { ...old.user, avatarPreset: "", avatarVersion: 0 } } : old,
       );
     },
+  });
+}
+
+// ---- The Vault (cosmetics shop) ----
+
+/** Active catalog; stable enough to cache for a minute. */
+export function useShopItems() {
+  return useQuery({
+    queryKey: ["shop-items"],
+    queryFn: () => getJSON<ShopCatalog>("/api/v1/shop/items"),
+    staleTime: 60_000,
+  });
+}
+
+/** The caller's owned items. */
+export function useShopInventory(enabled = true) {
+  return useQuery({
+    queryKey: ["shop-inventory"],
+    queryFn: () => getJSON<ShopInventory>("/api/v1/shop/inventory"),
+    enabled,
+  });
+}
+
+/** Buys one catalog item; patches the balance from the authoritative reply. */
+export function useShopPurchase() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (itemId: string): Promise<ShopPurchaseResponse> => {
+      const res = await fetch("/api/v1/shop/purchase", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ itemId, idempotencyKey: crypto.randomUUID() }),
+      });
+      if (!res.ok) await profileError(res);
+      return res.json() as Promise<ShopPurchaseResponse>;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData<Me>(["me"], (old) =>
+        old ? { ...old, balanceCredits: data.balanceCredits } : old,
+      );
+      void qc.invalidateQueries({ queryKey: ["shop-inventory"] });
+    },
+    onError: () => {
+      // Balance may have drifted; re-sync for the next attempt.
+      void qc.invalidateQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
+export interface CosmeticsUpdateInput {
+  title?: string;
+  nameEffect?: string;
+  cardSkin?: string;
+  avatarFrame?: string;
+  plinkoBall?: string;
+  profileTheme?: string;
+}
+
+/** Equips or clears cosmetic slots; the reply is the authoritative me. */
+export function useEquipCosmetics() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CosmeticsUpdateInput): Promise<Me> => {
+      const res = await fetch("/api/v1/me/cosmetics", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      if (!res.ok) await profileError(res);
+      return res.json() as Promise<Me>;
+    },
+    onSuccess: (me) => qc.setQueryData<Me>(["me"], me),
   });
 }
 
