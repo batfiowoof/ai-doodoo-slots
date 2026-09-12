@@ -3,6 +3,7 @@ import DiceScreen from "@/components/DiceScreen";
 import PlinkoScreen from "@/components/PlinkoScreen";
 import MachineScreen from "@/components/MachineScreen";
 import MinesScreen from "@/components/MinesScreen";
+import ChickenScreen from "@/components/ChickenScreen";
 
 export default async function PlayPage({
   params,
@@ -21,6 +22,9 @@ export default async function PlayPage({
   }
   if (id === "mines") {
     return <MinesScreen gameId={id} />;
+  }
+  if (id === "chicken") {
+    return <ChickenScreen gameId={id} />;
   }
   return <MachineScreen gameId={id} />;
 }

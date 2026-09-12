@@ -667,6 +667,134 @@ export function useMinesCashOut() {
   });
 }
 
+/* Chicken Run: one stateful round of lane hops against a hidden fatal lane. */
+export interface ChickenRoundView {
+  roundId: number;
+  betId: number;
+  status: "active" | "cashed" | "squashed";
+  betCredits: number;
+  difficulty: string;
+  lanes: number;
+  payoutCredits: number;
+  crossed: number;
+  multiplier: number;
+  nextMultiplier?: number;
+  cashable: boolean;
+  fatalLane?: number;
+}
+
+export interface ChickenResponse {
+  round: ChickenRoundView;
+  balanceCredits: number;
+  fairness: FairCurrent;
+  replay: boolean;
+}
+
+function applyChickenResponse(qc: ReturnType<typeof useQueryClient>, data: ChickenResponse) {
+  qc.setQueryData<Me>(["me"], (old) =>
+    old ? { ...old, balanceCredits: data.balanceCredits } : old,
+  );
+}
+
+/** Fetches the caller's in-progress chicken run, if any. */
+export function useChickenActive(enabled: boolean) {
+  return useQuery({
+    queryKey: ["chicken-active"],
+    queryFn: async (): Promise<ChickenRoundView | null> => {
+      const res = await getJSON<{ round: ChickenRoundView | null }>("/api/v1/chicken/active");
+      return res.round;
+    },
+    enabled,
+  });
+}
+
+/** Starts a chicken run; the stake debits immediately. */
+export function useChickenStart() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      betCredits: number;
+      difficulty: string;
+    }): Promise<ChickenResponse> => {
+      const res = await fetch("/api/v1/games/chicken/start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          betCredits: input.betCredits,
+          difficulty: input.difficulty,
+          clientSeed: "",
+          idempotencyKey: crypto.randomUUID(),
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new PlayError(res.status, body?.message ?? `start failed: ${res.status}`);
+      }
+      return res.json() as Promise<ChickenResponse>;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(["chicken-active"], data.round);
+      applyChickenResponse(qc, data);
+    },
+    onError: () => {
+      void qc.invalidateQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
+/** Hops one lane forward; the fatal lane settles the round at zero. */
+export function useChickenHop() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ roundId }: { roundId: number }): Promise<ChickenResponse> => {
+      const res = await fetch(`/api/v1/chicken/${roundId}/hop`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ idempotencyKey: crypto.randomUUID() }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new PlayError(res.status, body?.message ?? `hop failed: ${res.status}`);
+      }
+      return res.json() as Promise<ChickenResponse>;
+    },
+    onSuccess: (data) => {
+      const done = data.round.status !== "active";
+      qc.setQueryData(["chicken-active"], done ? null : data.round);
+      applyChickenResponse(qc, data);
+    },
+    onError: () => {
+      void qc.invalidateQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
+/** Cashes the active run out at its current multiplier. */
+export function useChickenCashOut() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ roundId }: { roundId: number }): Promise<ChickenResponse> => {
+      const res = await fetch(`/api/v1/chicken/${roundId}/cashout`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ idempotencyKey: crypto.randomUUID() }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new PlayError(res.status, body?.message ?? `cashout failed: ${res.status}`);
+      }
+      return res.json() as Promise<ChickenResponse>;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(["chicken-active"], null);
+      applyChickenResponse(qc, data);
+    },
+    onError: () => {
+      void qc.invalidateQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
 export type HandAction = "hit" | "stand" | "double";
 
 /** Applies hit/stand/double; completion credits the payout server-side. */

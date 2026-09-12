@@ -14,6 +14,7 @@ import (
 	"github.com/ai-doodoo-slots/services/backend/internal/admin"
 	"github.com/ai-doodoo-slots/services/backend/internal/auth"
 	"github.com/ai-doodoo-slots/services/backend/internal/bus"
+	"github.com/ai-doodoo-slots/services/backend/internal/chicken"
 	"github.com/ai-doodoo-slots/services/backend/internal/clock"
 	"github.com/ai-doodoo-slots/services/backend/internal/fair"
 	"github.com/ai-doodoo-slots/services/backend/internal/game"
@@ -46,8 +47,9 @@ type Server struct {
 	shop         *shop.Service
 	shopLimiter  *rateLimiter
 	authLimiter  *rateLimiter
-	hand         *hand.Service  // blackjack deal/action flow; nil-safe routes
-	mines        *mines.Service // stateful mines rounds; nil-safe routes
+	hand         *hand.Service    // blackjack deal/action flow; nil-safe routes
+	mines        *mines.Service   // stateful mines rounds; nil-safe routes
+	chicken      *chicken.Service // stateful chicken run rounds; nil-safe routes
 	themes       *theme.Service
 	recs         *recs.Service // personalized lobby engine; always set
 	admin        *admin.Service
@@ -149,6 +151,14 @@ func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieS
 		MaxBet:         10000,
 		Kind:           "stateful",
 	})
+	registry.RegisterListing(game.Listing{
+		ID:             "chicken",
+		Name:           "Chicken Run",
+		TheoreticalRTP: 0.99,
+		MinBet:         1,
+		MaxBet:         10000,
+		Kind:           "stateful",
+	})
 	s := &Server{
 		pool:         pool,
 		auth:         auth.NewService(pool, clk, logger),
@@ -162,6 +172,7 @@ func NewServer(pool *pgxpool.Pool, clk clock.Clock, logger *slog.Logger, cookieS
 		authLimiter:  newRateLimiter(clk, time.Minute, 30),
 		hand:         hand.NewService(pool, bjEngine, clk),
 		mines:        mines.NewService(pool, clk),
+		chicken:      chicken.NewService(pool, clk),
 		admin:        admin.NewService(pool),
 		recs:         recs.NewService(pool, clk, logger, gameDisplayNames(registry)),
 		themes:       nil,
@@ -212,6 +223,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/mines/{id}/reveal", s.handleMinesReveal)
 	mux.HandleFunc("POST /api/v1/mines/{id}/cashout", s.handleMinesCashOut)
 	mux.HandleFunc("GET /api/v1/mines/active", s.handleActiveMinesRound)
+	mux.HandleFunc("POST /api/v1/games/chicken/start", s.handleChickenStart)
+	mux.HandleFunc("POST /api/v1/chicken/{id}/hop", s.handleChickenHop)
+	mux.HandleFunc("POST /api/v1/chicken/{id}/cashout", s.handleChickenCashOut)
+	mux.HandleFunc("GET /api/v1/chicken/active", s.handleActiveChickenRound)
 	mux.HandleFunc("GET /api/v1/bets", s.handleListBets)
 	mux.HandleFunc("GET /api/v1/fair/current", s.handleFairCurrent)
 	mux.HandleFunc("POST /api/v1/fair/rotate", s.handleFairRotate)

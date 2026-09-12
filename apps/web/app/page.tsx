@@ -716,6 +716,16 @@ const GAME_STYLE: Record<string, { accent: string; status: string; art: React.Re
       </span>
     ),
   },
+  chicken: {
+    accent: "#ffd21f",
+    status: "ROADS · CASH OUT",
+    sound: () => sound.winTick(4),
+    art: (
+      <span style={{ fontSize: 46, lineHeight: 1, filter: "drop-shadow(0 0 10px rgba(255,210,31,.7))" }}>
+        🐔
+      </span>
+    ),
+  },
 };
 
 /** Machines get their paytable icons; table games get a little card fan. */

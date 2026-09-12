@@ -81,6 +81,26 @@ type ChatMute struct {
 	CreatedAt  time.Time
 }
 
+type ChickenRound struct {
+	ID            int64
+	UserID        int64
+	BetID         int64
+	Status        string
+	BetCredits    int64
+	Difficulty    string
+	Lanes         int32
+	Crossed       int32
+	FatalLane     int32
+	PayoutCredits int64
+	ActionKeys    []byte
+	ServerSeedID  int64
+	ClientSeed    string
+	Nonce         int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	CompletedAt   *time.Time
+}
+
 type EmailToken struct {
 	ID        int64
 	UserID    int64
