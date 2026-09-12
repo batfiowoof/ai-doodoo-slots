@@ -72,6 +72,17 @@ export interface SlotsPaytable {
   lines: number[][];
   icons: string[];
   mode: "lines" | "scatter";
+  bonus?: BonusPaytable | null;
+}
+
+/** Scatter-triggered free spins config, surfaced for display only. */
+export interface BonusPaytable {
+  symbol: string;
+  triggerSpins: Record<string, number>;
+  multiplier: number;
+  retriggerCount: number;
+  retriggerSpins: number;
+  boost: { name: string; from: number; to: number }[];
 }
 
 export interface GameInfo {
@@ -121,6 +132,22 @@ export interface SlotsOutcome {
   grid: number[][];
   winningLines: number[] | null;
   scatterWins?: ScatterWin[] | null;
+  bonus?: BonusOutcome | null;
+}
+
+/** A fully pre-decided free spins round; the client animates exactly this. */
+export interface BonusOutcome {
+  triggerCount: number;
+  spinsAwarded: number;
+  multiplier: number;
+  spins: {
+    grid: number[][];
+    winningLines?: number[] | null;
+    scatterWins?: ScatterWin[] | null;
+    payout: number;
+    retrigger: boolean;
+  }[];
+  total: number;
 }
 
 export interface BetRow {

@@ -8,7 +8,7 @@ import ReelWindow, {
 import BetInput from "./BetInput";
 import { PlayError, useFairCurrent, useGames, usePlay, useSession } from "@/lib/api";
 import { sound } from "@/lib/sound";
-import type { SlotsPaytable } from "@/lib/types";
+import type { BonusOutcome, SlotsPaytable } from "@/lib/types";
 
 const GAP = 6;
 
@@ -21,7 +21,17 @@ export interface OverlayState {
   coins: boolean;
 }
 
-type SpinPhase = "idle" | "lever" | "spinning" | "celebrating";
+type SpinPhase = "idle" | "lever" | "spinning" | "celebrating" | "bonus";
+
+/** Where the free spins sequence stands while it plays out. */
+interface BonusRuntime {
+  round: BonusOutcome;
+  /** Next spin index to play. */
+  index: number;
+  /** Bonus credits won so far (meter counts up per spin). */
+  won: number;
+  bet: number;
+}
 
 /** Cell size: fits the cabinet's 624px inner width and a 470px tall window. */
 function metrics(cols: number, rows: number) {
@@ -53,6 +63,16 @@ function anticipation(
   const holds = Array.from({ length: cols }, () => 0);
   const hotFor: Record<string, Record<string, boolean>> = {};
   const last = cols - 1;
+  // The bonus trigger symbol teases one below its trigger count — two landed
+  // bonus scatters means the whole cabinet holds its breath.
+  const bonusPt = pt.bonus;
+  const bonusSym =
+    bonusPt != null
+      ? pt.symbols.findIndex((s) => s.name === bonusPt.symbol)
+      : -1;
+  const bonusTrigger = bonusPt
+    ? Math.min(...Object.keys(bonusPt.triggerSpins).map(Number))
+    : 0;
 
   if (pt.mode === "scatter") {
     // A paying symbol one short of its lowest tier, outside the last reel.
@@ -61,8 +81,13 @@ function anticipation(
     for (let si = 0; si < pt.symbols.length; si++) {
       const sym = pt.symbols[si];
       const tiers = Object.keys(sym.pays ?? {}).map(Number);
-      if (tiers.length === 0) continue;
-      const min = Math.min(...tiers);
+      const min =
+        si === bonusSym && bonusTrigger > 0
+          ? bonusTrigger
+          : tiers.length === 0
+            ? 0
+            : Math.min(...tiers);
+      if (min === 0) continue;
       let count = 0;
       const cells: Record<string, boolean> = {};
       for (let r = 0; r < pt.rows; r++) {
@@ -126,6 +151,12 @@ export default function Cabinet({
   const icons = pt?.icons ?? [];
   const symbolCount = pt?.symbols.length ?? 8;
   const betSteps = pt?.betSteps ?? [5, 10, 25, 50, 100];
+  // Symbols with no pays at all — dimmed while the boosted bonus reels run.
+  const deadSymbols = pt
+    ? pt.symbols
+        .map((s, i) => (Object.keys(s.pays ?? {}).length === 0 ? i : -1))
+        .filter((i) => i >= 0)
+    : [];
 
   const { cell, sprite } = metrics(cols, rows);
 
@@ -147,6 +178,16 @@ export default function Cabinet({
     bigWin: boolean;
     winCells: Record<string, boolean> | null;
     paylineIdx: number[];
+  } | null>(null);
+  // Free spins: intro takeover -> sequential spins -> summary. State drives
+  // rendering; the ref drives the imperative sequence.
+  const [bonus, setBonus] = useState<BonusRuntime | null>(null);
+  const bonusRef = useRef<BonusRuntime | null>(null);
+  const [bonusIntro, setBonusIntro] = useState<BonusOutcome | null>(null);
+  const [spinPop, setSpinPop] = useState<{
+    payout: number;
+    retrigger: boolean;
+    total: number;
   } | null>(null);
 
   const resultRef = useRef<{
@@ -189,14 +230,47 @@ export default function Cabinet({
     setAnt(a);
   };
 
+  /** Win meter count-up shared by the base celebration and bonus summary. */
+  const runCountUp = (
+    payout: number,
+    base: number,
+    overlay: OverlayState | null,
+  ) => {
+    if (reduced) {
+      setWinShown(payout);
+      setSpinCredits(base + payout);
+      overlayRef.current = overlay ? { ...overlay, winShown: payout } : null;
+      onOverlay(overlay ? overlayRef.current! : null);
+      return;
+    }
+    const step = Math.max(1, Math.ceil(payout / 18));
+    let shown = 0;
+    if (tickRef.current !== null) clearInterval(tickRef.current);
+    tickRef.current = window.setInterval(() => {
+      shown = Math.min(payout, shown + step);
+      sound.winTick(shown);
+      setWinShown(shown);
+      setSpinCredits(base + shown);
+      if (overlayRef.current) {
+        overlayRef.current = { ...overlayRef.current, winShown: shown };
+        onOverlay(overlayRef.current);
+      }
+      if (shown >= payout && tickRef.current !== null) {
+        clearInterval(tickRef.current);
+        tickRef.current = null;
+      }
+    }, 70);
+  };
+
   const celebrate = () => {
     const r = resultRef.current;
     if (!r || !pt) return;
     const { res, bet: betAtSpin } = r;
     const payout = res.payoutCredits;
+    const bonusRound = res.outcome.bonus ?? null;
     // Meter base = balance after the stake debit; the payout counts up on top.
     const base = res.balanceCredits - payout;
-    if (payout <= 0) {
+    if (payout <= 0 && !bonusRound) {
       setSpinCredits(res.balanceCredits);
       setPhase("idle");
       return;
@@ -239,8 +313,37 @@ export default function Cabinet({
     setPhase("celebrating");
     setCelebration({ payout, summary, bigWin: big, winCells, paylineIdx: lines });
     setWinShown(0);
-    sound.jackpot(lines.length + scatter.length);
-    if (big) sound.bigWin();
+    if (payout > 0) {
+      sound.jackpot(lines.length + scatter.length);
+      if (big) sound.bigWin();
+    }
+
+    if (bonusRound) {
+      // Short base-beat (usually zero), then the takeover owns the screen.
+      later(
+        () => startBonus(bonusRound, betAtSpin),
+        reduced ? 400 : payout > 0 ? 1400 : 550,
+      );
+      if (payout > 0 && !reduced) {
+        const step = Math.max(1, Math.ceil(payout / 8));
+        let shown = 0;
+        if (tickRef.current !== null) clearInterval(tickRef.current);
+        tickRef.current = window.setInterval(() => {
+          shown = Math.min(payout, shown + step);
+          sound.winTick(shown);
+          setWinShown(shown);
+          setSpinCredits(base + shown);
+          if (shown >= payout && tickRef.current !== null) {
+            clearInterval(tickRef.current);
+            tickRef.current = null;
+          }
+        }, 70);
+      } else {
+        setWinShown(payout);
+        setSpinCredits(base + payout);
+      }
+      return;
+    }
 
     const overlay: OverlayState = {
       spinKey: res.betId,
@@ -266,34 +369,130 @@ export default function Cabinet({
       big ? 5200 : 3000,
     );
 
-    if (reduced) {
-      setWinShown(payout);
-      setSpinCredits(res.balanceCredits);
-      overlayRef.current = { ...overlay, winShown: payout };
-      onOverlay(overlayRef.current);
+    runCountUp(payout, base, overlay);
+  };
+
+  // ---- free spins sequence ----
+
+  const startBonus = (round: BonusOutcome, betAtSpin: number) => {
+    sound.bonusTrigger();
+    setBonusIntro(round);
+    setPhase("bonus");
+    later(
+      () => {
+        setBonusIntro(null);
+        const runtime: BonusRuntime = { round, index: 0, won: 0, bet: betAtSpin };
+        bonusRef.current = runtime;
+        setBonus(runtime);
+        nextBonusSpin();
+      },
+      reduced ? 1000 : 2600,
+    );
+  };
+
+  const nextBonusSpin = () => {
+    const b = bonusRef.current;
+    const r = resultRef.current;
+    if (!b || !r || !pt) return;
+    if (b.index >= b.round.spins.length) {
+      finishBonus();
       return;
     }
-    const step = Math.max(1, Math.ceil(payout / 18));
-    let shown = 0;
-    if (tickRef.current !== null) clearInterval(tickRef.current);
-    tickRef.current = window.setInterval(() => {
-      shown = Math.min(payout, shown + step);
-      sound.winTick(shown);
-      setWinShown(shown);
-      setSpinCredits(base + shown);
-      if (overlayRef.current) {
-        overlayRef.current = { ...overlayRef.current, winShown: shown };
-        onOverlay(overlayRef.current);
-      }
-      if (shown >= payout && tickRef.current !== null) {
-        clearInterval(tickRef.current);
-        tickRef.current = null;
-      }
-    }, 70);
+    const spin = b.round.spins[b.index];
+    spinIdRef.current += 1;
+    const targets = spin.grid[0].map((_, c) => spin.grid.map((row) => row[c]));
+    // holds must be a full-length numeric array: the launch effect indexes it
+    // per reel, and an undefined entry poisons the filler count, transition
+    // duration, and safety-net timeout with NaN.
+    setSpec({
+      id: spinIdRef.current,
+      targets,
+      holds: Array.from({ length: cols }, () => 0),
+      hotFor: {},
+    });
+    setPhase("spinning");
+    sound.bonusSpin();
+    sound.startWhir();
+  };
+
+  const bonusSpinSettled = () => {
+    const b = bonusRef.current;
+    const r = resultRef.current;
+    if (!b || !r || !pt) return;
+    const spin = b.round.spins[b.index];
+    const won = b.won + spin.payout;
+    const runtime: BonusRuntime = { ...b, won, index: b.index + 1 };
+    bonusRef.current = runtime;
+    setBonus(runtime);
+    setSpinCredits(r.res.balanceCredits - r.res.payoutCredits + won);
+    setSpinPop({ payout: spin.payout, retrigger: spin.retrigger, total: won });
+    if (spin.retrigger) sound.retrigger();
+    else if (spin.payout > 0) sound.jackpot(1);
+
+    const popMs = reduced
+      ? 200
+      : spin.retrigger
+        ? 1900
+        : spin.payout > 0
+          ? 1250
+          : 420;
+    later(() => {
+      setSpinPop(null);
+      nextBonusSpin();
+    }, popMs + 240);
+  };
+
+  const finishBonus = () => {
+    const b = bonusRef.current;
+    const r = resultRef.current;
+    if (!b || !r) return;
+    bonusRef.current = null;
+    setBonus(null);
+    setAnt(null);
+    const payout = r.res.payoutCredits;
+    const base = r.res.balanceCredits - payout;
+    sound.bonusEnd();
+    const big = payout >= b.bet * 20;
+    setPhase("celebrating");
+    setCelebration({
+      payout,
+      summary: `FREE SPINS ×${b.round.multiplier} · ${b.round.spins.length} SPUN`,
+      bigWin: big,
+      winCells: null,
+      paylineIdx: [],
+    });
+    setWinShown(0);
+    const overlay: OverlayState = {
+      spinKey: r.res.betId + 1_000_000,
+      payout,
+      winShown: 0,
+      summary: `FREE SPINS WON ×${b.round.multiplier}`,
+      bigWin: big,
+      coins: big || payout >= b.bet * 6,
+    };
+    overlayRef.current = overlay;
+    onOverlay(overlay);
+    later(
+      () => {
+        setPhase("idle");
+        setCelebration(null);
+        setWinShown(0);
+        setAnt(null);
+        setSpinCredits(r.res.balanceCredits);
+        overlayRef.current = null;
+        onOverlay(null);
+      },
+      big ? 5200 : 3400,
+    );
+    runCountUp(payout, base, overlay);
   };
 
   const handleAllSettled = () => {
     sound.stopWhir();
+    if (bonusRef.current) {
+      bonusSpinSettled();
+      return;
+    }
     celebrate();
   };
 
@@ -323,6 +522,10 @@ export default function Cabinet({
     setCelebration(null);
     setWinShown(0);
     setAnt(null);
+    bonusRef.current = null;
+    setBonus(null);
+    setBonusIntro(null);
+    setSpinPop(null);
     if (credits !== null) setSpinCredits(credits - effBet);
     setPhase("lever");
 
@@ -424,6 +627,54 @@ export default function Cabinet({
       </div>
     ) : null;
 
+  // Per-free-spin pop: the win, the retrigger shout, and the running total.
+  const bonusBanner = spinPop ? (
+    <div
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        padding: 10,
+        textAlign: "center",
+        background: "rgba(6,4,13,.82)",
+        borderTop: "2px solid #ffd75e",
+      }}
+    >
+      {spinPop.retrigger && (
+        <span
+          style={{
+            fontFamily: "var(--font-display)",
+            fontSize: 28,
+            color: "#ff8a1f",
+            textShadow: "0 0 16px rgba(255,138,31,.95)",
+            marginRight: 14,
+            animation: "hintBlink .8s steps(1) infinite",
+          }}
+        >
+          RETRIGGER · +{pt?.bonus?.retriggerSpins ?? 5} SPINS
+        </span>
+      )}
+      {spinPop.payout > 0 && (
+        <span
+          style={{
+            fontFamily: "var(--font-display)",
+            fontSize: 26,
+            color: "#22e8ff",
+            textShadow: "0 0 14px rgba(34,232,255,.9)",
+            marginRight: 14,
+          }}
+        >
+          WIN {spinPop.payout.toLocaleString()}
+        </span>
+      )}
+      <span style={{ fontSize: 19, color: "#ffd75e" }}>
+        TOTAL {spinPop.total.toLocaleString()}
+      </span>
+    </div>
+  ) : null;
+  const reelBanner = winBanner ?? bonusBanner;
+
   const digitStr = String(Math.max(0, credits ?? 0))
     .padStart(4, "0")
     .split("");
@@ -435,12 +686,16 @@ export default function Cabinet({
   const statusLine = ant
     ? `HOLDING REEL ${ant.reel + 1}…`
     : phase === "spinning"
-      ? "REELS IN MOTION"
+      ? bonus
+        ? "FREE SPIN IN MOTION"
+        : "REELS IN MOTION"
       : phase === "lever"
         ? "LEVER RELEASED"
-        : phase === "celebrating"
-          ? "PAYING OUT"
-          : `READY · BET ${effBet}`;
+        : phase === "bonus"
+          ? "BONUS STARTING"
+          : phase === "celebrating"
+            ? "PAYING OUT"
+            : `READY · BET ${effBet}`;
 
   return (
     <div
@@ -516,15 +771,65 @@ export default function Cabinet({
           </div>
         </div>
 
+        {/* Free spins meter */}
+        {bonus && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginTop: 14,
+              padding: "8px 14px",
+              border: "2px solid #ffd75e",
+              background: "#1a0d2e",
+              boxShadow: "0 0 22px rgba(255,215,94,.4), inset 0 0 24px rgba(255,138,31,.12)",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: 19,
+                letterSpacing: 2,
+                color: "#ffd75e",
+              }}
+            >
+              FREE SPINS{" "}
+              {Math.min(
+                phase === "spinning" ? bonus.index + 1 : bonus.index,
+                bonus.round.spins.length,
+              )}
+              /{bonus.round.spins.length}
+            </span>
+            <span
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: 19,
+                color: "#22e8ff",
+                border: "2px solid #22e8ff",
+                borderRadius: 999,
+                padding: "2px 12px",
+              }}
+            >
+              ×{bonus.round.multiplier}
+            </span>
+            <span style={{ fontFamily: "var(--font-body)", fontSize: 20, color: "#ff8a1f" }}>
+              WON {bonus.won.toLocaleString()}
+            </span>
+          </div>
+        )}
+
         {/* Reel window */}
         <div
           style={{
+            position: "relative",
             margin: "14px 0",
             padding: 10,
             background: "#06040d",
             border: "2px solid #22e8ff",
             boxShadow:
-              "0 0 24px rgba(34,232,255,.3), inset 0 0 40px rgba(34,232,255,.08)",
+              bonus
+                ? "0 0 24px rgba(255,215,94,.55), inset 0 0 40px rgba(255,138,31,.14)"
+                : "0 0 24px rgba(34,232,255,.3), inset 0 0 40px rgba(34,232,255,.08)",
             display: "flex",
             justifyContent: "center",
           }}
@@ -545,10 +850,67 @@ export default function Cabinet({
             winCells={celebrating ? celebration.winCells : null}
             paylineIdx={celebrating && mode === "lines" ? celebration.paylineIdx : []}
             error={error}
-            winBanner={winBanner}
+            winBanner={reelBanner}
+            boosted={bonus !== null}
+            dimSymbols={bonus ? deadSymbols : null}
             onAnticipation={handleAnticipation}
             onAllSettled={handleAllSettled}
           />
+
+          {bonusIntro && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                zIndex: 5,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 14,
+                background: "rgba(6,4,13,.92)",
+                animation: "cellWin .4s steps(1) infinite",
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: 68,
+                  letterSpacing: 8,
+                  color: "#ffd75e",
+                  textShadow: "0 0 30px rgba(255,138,31,.95)",
+                  animation: "titleGlow 1.1s ease-in-out infinite",
+                }}
+              >
+                BONUS!
+              </span>
+              <span style={{ fontSize: 24, color: "#ff2d95", letterSpacing: 3 }}>
+                {bonusIntro.triggerCount} BONUS SCATTERS
+              </span>
+              <span
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: 40,
+                  color: "#fff",
+                  textShadow: "0 0 18px rgba(34,232,255,.9)",
+                }}
+              >
+                {bonusIntro.spinsAwarded} FREE SPINS
+              </span>
+              <span
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: 24,
+                  color: "#22e8ff",
+                  border: "2px solid #22e8ff",
+                  borderRadius: 999,
+                  padding: "6px 22px",
+                }}
+              >
+                ALL WINS ×{bonusIntro.multiplier}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Deck */}

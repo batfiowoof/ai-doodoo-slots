@@ -72,6 +72,15 @@ func FruitSalad() *Game {
 
 // Treasure is the 4x4 scatter game: no paylines at all. Bar, coin stacks,
 // money bags, and bonus symbols pay anywhere on the grid when enough land.
+//
+// 3+ bonus symbols trigger the free spins round (8/12/15 spins for 3/4/5+,
+// retriggers +5 on 3+ bonus — rarer keeps the RTP math honest and the
+// moment special): free spins draw from boosted weights (dead symbols
+// thinned), every win pays x2, and 5+ bonus keeps its flat pay on top.
+// The flat 10x/40x pays for 3/4 bonus were replaced by the round, and the
+// bar/money-bag/bonus top tiers were trimmed to fund the bonus EV:
+// analytic RTP went from ~0.9815 (pre-bonus) to ~0.95, with the bonus
+// carrying roughly a fifth of the total.
 func Treasure() *Game {
 	return New(Config{
 		ID:   "treasure",
@@ -82,15 +91,24 @@ func Treasure() *Game {
 			{Name: "spade", Weight: 28, Pays: nil},
 			{Name: "club", Weight: 22, Pays: nil},
 			{Name: "heart-card", Weight: 16, Pays: nil},
-			{Name: "bar", Weight: 14, Pays: map[int]int64{4: 1, 5: 2, 6: 3}},
+			{Name: "bar", Weight: 14, Pays: map[int]int64{4: 1, 5: 2, 6: 2}},
 			{Name: "coin-stack", Weight: 10, Pays: map[int]int64{3: 1, 4: 2}},
-			{Name: "money-bag", Weight: 7, Pays: map[int]int64{3: 1, 4: 4, 5: 20, 6: 100, 7: 500}},
-			{Name: "bonus", Weight: 3, Pays: map[int]int64{3: 10, 4: 40, 5: 200, 6: 1000, 7: 5000}},
+			{Name: "money-bag", Weight: 7, Pays: map[int]int64{3: 1, 4: 4, 5: 15, 6: 60, 7: 200}},
+			{Name: "bonus", Weight: 3, Pays: map[int]int64{5: 200, 6: 600, 7: 2000}},
 		},
 		Icons:    []string{"spade", "club", "heart-card", "bar", "coin-stack", "money-bag", "bonus"},
 		BetSteps: []int64{5, 10, 25, 50, 100},
 		MinBet:   5,
 		MaxBet:   10000,
+		Bonus: &BonusSpec{
+			Symbol:         "bonus",
+			TriggerSpins:   map[int]int{3: 8, 4: 12, 5: 15},
+			KeepFlatFrom:   5,
+			BonusWeights:   []int64{14, 10, 40, 15, 11, 7, 3},
+			Multiplier:     2,
+			RetriggerCount: 3,
+			RetriggerSpins: 5,
+		},
 	})
 }
 
@@ -139,6 +157,62 @@ func validate(cfg Config) error {
 		if step < cfg.MinBet || step > cfg.MaxBet {
 			return fmt.Errorf("bet step %d outside range [%d, %d]", step, cfg.MinBet, cfg.MaxBet)
 		}
+	}
+	if cfg.Bonus == nil {
+		return nil
+	}
+	if len(cfg.Lines) != 0 {
+		return fmt.Errorf("bonus rounds require scatter-pays mode")
+	}
+	b := cfg.Bonus
+	found := false
+	for _, s := range cfg.Symbols {
+		if s.Name == b.Symbol {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("bonus symbol %q not in symbol set", b.Symbol)
+	}
+	if len(b.BonusWeights) != len(cfg.Symbols) {
+		return fmt.Errorf("bonus weights %d != symbols %d", len(b.BonusWeights), len(cfg.Symbols))
+	}
+	var bwSum int64
+	for _, w := range b.BonusWeights {
+		if w < 0 {
+			return fmt.Errorf("bonus weight %d negative", w)
+		}
+		bwSum += w
+	}
+	if bwSum != 100 {
+		return fmt.Errorf("bonus weights sum to %d, want 100", bwSum)
+	}
+	if len(b.TriggerSpins) == 0 {
+		return fmt.Errorf("bonus trigger table empty")
+	}
+	for count, spins := range b.TriggerSpins {
+		if count < 3 || count > cfg.Cols*cfg.Rows {
+			return fmt.Errorf("bonus trigger count %d out of range", count)
+		}
+		if spins <= 0 {
+			return fmt.Errorf("bonus trigger %d awards non-positive spins", count)
+		}
+	}
+	if b.KeepFlatFrom < 3 || b.KeepFlatFrom > cfg.Cols*cfg.Rows+1 {
+		return fmt.Errorf("bonus keepFlatFrom %d out of range", b.KeepFlatFrom)
+	}
+	if b.Multiplier < 1 {
+		return fmt.Errorf("bonus multiplier %d < 1", b.Multiplier)
+	}
+	if b.RetriggerSpins < 0 || b.RetriggerCount < 0 || b.RetriggerCount > cfg.Cols*cfg.Rows {
+		return fmt.Errorf("bonus retrigger spec [%d, %d] invalid", b.RetriggerCount, b.RetriggerSpins)
+	}
+	if b.RetriggerSpins > 0 && b.RetriggerCount < 2 {
+		return fmt.Errorf("bonus retrigger count must be >= 2")
+	}
+	if b.RetriggerSpins > 0 && retriggerProb(cfg, b)*float64(b.RetriggerSpins) >= 1 {
+		return fmt.Errorf("bonus retrigger offspring mean >= 1: expected spins diverge")
 	}
 	return nil
 }

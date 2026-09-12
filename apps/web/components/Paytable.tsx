@@ -108,6 +108,44 @@ export default function Paytable({ gameId }: { gameId: string }) {
         );
       })}
 
+      {pt.bonus && (
+        <div
+          style={{
+            margin: "16px 0 4px",
+            padding: 14,
+            border: "2px solid #ffd75e",
+            background: "rgba(255, 138, 31, 0.07)",
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 22,
+              letterSpacing: 3,
+              color: "#ffd75e",
+              marginBottom: 8,
+            }}
+          >
+            BONUS · FREE SPINS
+          </div>
+          <p style={{ margin: 0, fontSize: 20, lineHeight: 1.5, color: "#ece6ff" }}>
+            Land{" "}
+            {Object.keys(pt.bonus.triggerSpins).length > 1 ? "3+" : "3"}{" "}
+            <span style={{ color: "#ff2d95" }}>{pt.bonus.symbol}</span> symbols
+            anywhere to win{" "}
+            {Object.entries(pt.bonus.triggerSpins)
+              .sort(([a], [b]) => Number(a) - Number(b))
+              .map(([count, spins]) => `${count}→${spins}`)
+              .join(" · ")}{" "}
+            free spins (count→spins). Every free-spin win pays{" "}
+            <span style={{ color: "#22e8ff" }}>×{pt.bonus.multiplier}</span>, the
+            low symbols thin out of the reels, and{" "}
+            {pt.bonus.retriggerCount}+ scatters during the round add{" "}
+            {pt.bonus.retriggerSpins} more spins.
+          </p>
+        </div>
+      )}
+
       <p style={{ margin: "16px 0 0", fontSize: 20, color: "#ff2d95" }}>
         {pt.mode === "scatter"
           ? "scatter game · pays × total bet"

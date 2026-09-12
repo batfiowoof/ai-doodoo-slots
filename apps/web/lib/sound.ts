@@ -265,6 +265,46 @@ class SoundManager {
   }
 
   /**
+   * Bonus trigger: a rising siren run into a five-note fanfare with a
+   * double bell crown — the "you are in" moment.
+   */
+  bonusTrigger(): void {
+    this.tone(180, 0.9, { type: "sawtooth", gain: 0.06, slideTo: 720 });
+    this.tone(184, 0.9, { type: "square", gain: 0.03, slideTo: 736 });
+    [523, 659, 784, 1047, 1319].forEach((f, i) => {
+      this.tone(f, 0.22, { gain: 0.07, delay: 0.95 + i * 0.11 });
+      this.tone(f / 2, 0.22, { type: "triangle", gain: 0.03, delay: 0.95 + i * 0.11 });
+    });
+    this.bell(1.52);
+    this.bell(1.64);
+    this.hit(0.5, { gain: 0.14, freq: 90, q: 0.8, delay: 0.9, type: "lowpass" });
+  }
+
+  /** Free spin launch: a brighter, higher-pitched whir tick. */
+  bonusSpin(): void {
+    this.tone(880, 0.07, { gain: 0.05, slideTo: 1560 });
+    this.hit(0.05, { gain: 0.09, freq: 2600, delay: 0.02 });
+  }
+
+  /** Retrigger: quick ascending arpeggio + bell. "MORE SPINS." */
+  retrigger(): void {
+    [784, 988, 1319, 1568].forEach((f, i) =>
+      this.tone(f, 0.14, { gain: 0.06, delay: i * 0.07 }),
+    );
+    this.bell(0.32);
+  }
+
+  /** Bonus end: descending resolve with a final double bell + thump. */
+  bonusEnd(): void {
+    [1319, 1047, 784, 659].forEach((f, i) =>
+      this.tone(f, 0.18, { type: "triangle", gain: 0.05, delay: i * 0.1 }),
+    );
+    this.bell(0.44);
+    this.bell(0.56);
+    this.hit(0.4, { gain: 0.12, freq: 110, q: 0.8, delay: 0.42, type: "lowpass" });
+  }
+
+  /**
    * Card slide: a band-passed noise sweep that falls as the card leaves the
    * hand, ending in a soft felt landing. The signature deal sound.
    */

@@ -56,6 +56,8 @@ export default function ReelWindow({
   paylineIdx,
   error,
   winBanner,
+  boosted = false,
+  dimSymbols = null,
   onAnticipation,
   onAllSettled,
 }: {
@@ -78,6 +80,10 @@ export default function ReelWindow({
   paylineIdx: number[];
   error: string | null;
   winBanner: ReactNode;
+  /** Bonus reels: golden frame + warm glow while the free spins run. */
+  boosted?: boolean;
+  /** Symbol indices to dim while boosted (the dead symbols). */
+  dimSymbols?: number[] | null;
   onAnticipation: (ant: Anticipation | null) => void;
   onAllSettled: () => void;
 }) {
@@ -158,7 +164,13 @@ export default function ReelWindow({
     antRef.current = null;
     onAnticipation(null);
 
-    const holds = reduced ? spec.holds.map(() => 0) : spec.holds;
+    // Holds must be finite and full-length; a NaN entry would poison the
+    // filler count, the transition duration, and the safety-net timeout,
+    // freezing the reels mid-sequence.
+    const holds = (reduced ? spec.holds.map(() => 0) : spec.holds).map((h) =>
+      Number.isFinite(h) ? h : 0,
+    );
+    while (holds.length < cols) holds.push(0);
     const linear = reduced ? 300 : LINEAR_MS;
     const settleMs = reduced ? 120 : SETTLE_MS;
 
@@ -182,6 +194,7 @@ export default function ReelWindow({
       acc += holds[c];
       worst = Math.max(worst, starts[c] + linear + holds[c] + settleMs);
     }
+    if (!Number.isFinite(worst)) worst = cols * STAGGER + linear + settleMs + 500;
 
     if (safetyRef.current !== null) clearTimeout(safetyRef.current);
     const id = spec.id;
@@ -200,7 +213,9 @@ export default function ReelWindow({
           prev.map((r, c) => ({
             ...r,
             phase: 1,
-            y: -(r.len - 2 * rows) * cell,
+            // Clamped: a degenerate short strip must translate by 0 (stay
+            // visible), never get pushed below the window by a positive y.
+            y: -Math.max(0, r.len - 2 * rows) * cell,
             trans: `transform ${linear + holds[c]}ms linear ${starts[c]}ms`,
           })),
         );
@@ -233,7 +248,7 @@ export default function ReelWindow({
         return {
           ...r,
           phase: 2,
-          y: -(r.len - rows) * cell,
+          y: -Math.max(0, r.len - rows) * cell,
           trans: `transform 190ms cubic-bezier(.25,.9,.3,1.04) ${delay}ms`,
         };
       }),
@@ -258,7 +273,7 @@ export default function ReelWindow({
             ? {
                 ...x,
                 phase: 2,
-                y: -(x.len - rows) * cell,
+                y: -Math.max(0, x.len - rows) * cell,
                 trans: `transform ${SETTLE_MS}ms cubic-bezier(.16,.84,.3,1.02)`,
               }
             : x,
@@ -311,6 +326,7 @@ export default function ReelWindow({
                   !!winCells && winCells[`${c}:${i}`] === true;
                 const isHot =
                   !!ant && !!ant.hot[`${c}:${i}`] && c < ant.reel;
+                const dim = !!boosted && !!dimSymbols?.includes(sym);
                 return (
                   <div
                     key={i}
@@ -321,15 +337,24 @@ export default function ReelWindow({
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      background: "#0c0718",
-                      boxShadow: "inset 0 0 0 1px #241640",
+                      background: boosted ? "#120a1e" : "#0c0718",
+                      boxShadow: boosted
+                        ? "inset 0 0 0 1px #3d2c18"
+                        : "inset 0 0 0 1px #241640",
                     }}
                   >
-                    <PixelSymbol
-                      index={sym}
-                      icon={icons[sym]}
-                      scale={sprite / 32}
-                    />
+                    <div
+                      style={{
+                        opacity: dim ? 0.34 : 1,
+                        filter: dim ? "grayscale(.85) brightness(.55)" : undefined,
+                      }}
+                    >
+                      <PixelSymbol
+                        index={sym}
+                        icon={icons[sym]}
+                        scale={sprite / 32}
+                      />
+                    </div>
                     {isWin && (
                       <div
                         style={{
@@ -407,6 +432,47 @@ export default function ReelWindow({
             "linear-gradient(rgba(34,232,255,.10), transparent 40%, transparent 60%, rgba(255,45,149,.10))",
         }}
       />
+
+      {boosted && (
+        <>
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              pointerEvents: "none",
+              boxShadow: "inset 0 0 0 3px #ffd75e, inset 0 0 34px rgba(255,138,31,.28)",
+              animation: "bonusPulse 1.1s steps(1) infinite",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              top: 0,
+              padding: 8,
+              textAlign: "center",
+              pointerEvents: "none",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                background: "rgba(6,4,13,.86)",
+                padding: "6px 14px",
+                fontFamily: "var(--font-display)",
+                fontSize: 15,
+                letterSpacing: 3,
+                color: "#ffd75e",
+                textShadow: "0 0 14px rgba(255,138,31,.9)",
+                animation: "antLabel .5s steps(1) infinite",
+              }}
+            >
+              BOOSTED REELS
+            </span>
+          </div>
+        </>
+      )}
 
       {ant && (
         <>

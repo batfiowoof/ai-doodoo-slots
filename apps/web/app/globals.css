@@ -132,6 +132,22 @@ select {
   }
 }
 
+/* Boosted bonus-reel frame: alternating gold ring. */
+@keyframes bonusPulse {
+  0%,
+  49% {
+    box-shadow:
+      inset 0 0 0 3px #ffd75e,
+      inset 0 0 34px rgba(255, 138, 31, 0.28);
+  }
+  50%,
+  100% {
+    box-shadow:
+      inset 0 0 0 3px #fff3c4,
+      inset 0 0 44px rgba(255, 138, 31, 0.42);
+  }
+}
+
 @keyframes antRing {
   0%,
   49% {
