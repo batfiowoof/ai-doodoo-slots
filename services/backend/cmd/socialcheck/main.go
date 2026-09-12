@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ai-doodoo-slots/services/backend/internal/clock"
 	"github.com/gorilla/websocket"
 )
 
@@ -38,6 +39,10 @@ var failures []string
 
 // debugFrames traces player A's inbound frame types (SOCIALCHECK_DEBUG=1).
 var debugFrames = os.Getenv("SOCIALCHECK_DEBUG") == "1"
+
+// The clock guard forbids direct time.Now outside internal/clock; the bot
+// has no determinism needs, it just plays by the same rule.
+var clk = clock.Real{}
 
 func check(name string, ok bool, detail string) {
 	if ok {
@@ -280,7 +285,7 @@ func grindBigWin(p *player, maxPlays int) (float64, int) {
 			p.client.Post(p.base+"/api/v1/me/deposit", "application/json", nil) // keep the stake alive
 		}
 		body := strings.NewReader(fmt.Sprintf(
-			`{"betCredits":5,"clientSeed":"","idempotencyKey":"socialcheck-%d"}`, time.Now().UnixNano()))
+			`{"betCredits":5,"clientSeed":"","idempotencyKey":"socialcheck-%d"}`, clk.Now().UnixNano()))
 		resp, err := p.client.Post(p.base+"/api/v1/games/slots/play", "application/json", body)
 		if err != nil {
 			time.Sleep(300 * time.Millisecond)

@@ -13,8 +13,8 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/ai-doodoo-slots/services/backend/internal/clock"
 	"github.com/ai-doodoo-slots/services/backend/internal/shop"
 	"github.com/ai-doodoo-slots/services/backend/internal/store"
 	"github.com/ai-doodoo-slots/services/backend/internal/wallet"
@@ -45,15 +45,18 @@ type Service struct {
 	pool   *pgxpool.Pool
 	logger *slog.Logger
 	shop   *shop.Service // emote-pack entitlement gate
+	clk    clock.Clock
 }
 
-func New(pool *pgxpool.Pool, logger *slog.Logger) *Service {
-	return &Service{pool: pool, logger: logger, shop: shop.NewService(pool)}
+func New(pool *pgxpool.Pool, logger *slog.Logger, clk clock.Clock) *Service {
+	return &Service{pool: pool, logger: logger, shop: shop.NewService(pool), clk: clk}
 }
 
 // uniqueStamp makes ledger idempotency keys unique per social event (these
 // are intentional one-shots, not retried money moves).
-func uniqueStamp() string { return strconv.FormatInt(time.Now().UnixNano(), 36) }
+func (s *Service) uniqueStamp() string {
+	return strconv.FormatInt(s.clk.Now().UnixNano(), 36)
+}
 
 // comma renders 1234567 as "1,234,567" for chat lines.
 func comma(n int64) string {
@@ -216,7 +219,7 @@ func (s *Service) SendTip(id ws.Identity, toUserID, credits int64) (map[string]a
 			return nil, nil, codedError{"insufficient_credits", "not enough credits"}
 		}
 	}
-	stamp := uniqueStamp()
+	stamp := s.uniqueStamp()
 	if _, err := wallet.ApplyTx(ctx, tx, wallet.ApplyRequest{
 		UserID: id.UserID, Kind: wallet.KindTip, Amount: -credits,
 		IdempotencyKey: fmt.Sprintf("tip:%d:%d:%s", id.UserID, toUserID, stamp),
@@ -292,7 +295,7 @@ func (s *Service) Rain(id ws.Identity, totalCredits int64, recipients []int64) (
 			return nil, nil, codedError{"insufficient_credits", "not enough credits"}
 		}
 	}
-	stamp := uniqueStamp()
+	stamp := s.uniqueStamp()
 	if _, err := wallet.ApplyTx(ctx, tx, wallet.ApplyRequest{
 		UserID: id.UserID, Kind: wallet.KindRain, Amount: -distributed,
 		IdempotencyKey: fmt.Sprintf("rain:%d:%s", id.UserID, stamp),

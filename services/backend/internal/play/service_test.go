@@ -252,7 +252,9 @@ func TestUnknownGameAndBadBet(t *testing.T) {
 	if _, err := f.svc.Play(ctx, f.userID, "nope", 5, nil, "cs", f.key("k1")); !errors.Is(err, ErrUnknownGame) {
 		t.Fatalf("want ErrUnknownGame, got %v", err)
 	}
-	if _, err := f.svc.Play(ctx, f.userID, "slots", 7, nil, "cs", f.key("k2")); !errors.Is(err, ErrInvalidBet) {
+	// Classic accepts any stake in [5, 10000] (steps are UI presets), so the
+	// invalid case must sit below the minimum.
+	if _, err := f.svc.Play(ctx, f.userID, "slots", 4, nil, "cs", f.key("k2")); !errors.Is(err, ErrInvalidBet) {
 		t.Fatalf("want ErrInvalidBet, got %v", err)
 	}
 	if _, err := f.svc.Play(ctx, f.userID, "slots", 5, nil, "cs", ""); !errors.Is(err, ErrIdempotencyKeyInvalid) {

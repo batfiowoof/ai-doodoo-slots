@@ -96,7 +96,7 @@ func main() {
 
 	// Chat, emotes, tips and rain ride the hub's social path (gameserver
 	// only — the stateless api has no social handler wired).
-	api.Hub().SetSocialHandler(social.New(pool, logger))
+	api.Hub().SetSocialHandler(social.New(pool, logger, clock.Real{}))
 
 	// One runner per active room; each runner is the single writer for its
 	// room's rounds. Round games (crash) use the phase-loop runner; table
